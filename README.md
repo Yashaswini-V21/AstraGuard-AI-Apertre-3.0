@@ -14,7 +14,7 @@
 
   <br />
 
-  **[📚 Documentation](docs/TECHNICAL.md)** | **[🧪 Research Lab](research/)** | **[🐛 Report Bug](.github/ISSUE_TEMPLATE/bug_report.yml)** | **[✨ Request Feature](.github/ISSUE_TEMPLATE/feature_request.yml)**
+  **[📚 Documentation](docs/TECHNICAL.md)** | **[📄 Technical Report](docs/TECHNICAL_REPORT.md)** | **[🧪 Research Lab](research/)** | **[🐛 Report Bug](.github/ISSUE_TEMPLATE/bug_report.yml)** | **[✨ Request Feature](.github/ISSUE_TEMPLATE/feature_request.yml)**
 
 </div>
 
