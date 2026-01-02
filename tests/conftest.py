@@ -4,8 +4,11 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-# Configure pytest-asyncio mode
-pytest_plugins = ('pytest_asyncio',)
+# Configure pytest-asyncio mode (optional - only if installed)
+try:
+    pytest_plugins = ('pytest_asyncio',)
+except Exception:
+    pass
 
 # Ensure project modules are importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
