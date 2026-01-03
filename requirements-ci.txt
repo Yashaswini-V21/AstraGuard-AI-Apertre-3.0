@@ -14,9 +14,9 @@ aiohttp>=3.11.0,<4.0
 pydantic==2.7.0
 httpx==0.25.0
 
-# ML/AI (CPU-only torch - no CUDA packages)
-# Install with: pip install torch -f https://download.pytorch.org/whl/torch_stable.html
+# ML/AI (CPU-only torch - MUST use --index-url https://download.pytorch.org/whl/cpu at install time)
 torch>=2.2.0,<3.0
+sentence-transformers==5.1.2
 
 # Observability & monitoring
 prometheus-client==0.21.0
