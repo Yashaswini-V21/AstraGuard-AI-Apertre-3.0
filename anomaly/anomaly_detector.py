@@ -77,7 +77,7 @@ async def _load_model_impl() -> bool:
 
     if os.path.exists(MODEL_PATH):
         with open(MODEL_PATH, "rb") as f:
-            _MODEL = pickle.load(f)
+            _MODEL = pickle.load(f)  # noqa: S301 - model file is trusted and part of deployment
         _MODEL_LOADED = True
         _USING_HEURISTIC_MODE = False
         health_monitor.mark_healthy(
