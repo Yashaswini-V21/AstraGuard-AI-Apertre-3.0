@@ -170,8 +170,13 @@ def log_feedback(fault_id: str, anomaly_type: str = "unknown") -> Callable[[F], 
                 except (IOError, json.JSONDecodeError) as e:
                     # Non-blocking: log but don't raise feedback logging errors
                     logger.debug(
-                        f"Failed to log feedback for {func.__name__}: "
-                        f"{type(e).__name__}: {e}"
+                        f"Failed to log feedback for {func.__name__}",
+                        extra={
+                            "error_type": type(e).__name__,
+                            "error_msg": str(e),
+                            "component": "feedback_decorator",
+                            "function": func.__name__,
+                        },
                     )
 
             if error_to_raise:
@@ -179,6 +184,6 @@ def log_feedback(fault_id: str, anomaly_type: str = "unknown") -> Callable[[F], 
 
             return result  # Never break recovery flow
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper
 
     return decorator

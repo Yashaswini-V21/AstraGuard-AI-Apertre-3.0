@@ -5,7 +5,6 @@ Focuses on uncovered lines in state_engine.py and anomaly_detector.py
 
 import pytest
 from unittest.mock import patch, MagicMock
-import sys
 from state_machine.state_engine import StateMachine, MissionPhase, SystemState
 from anomaly.anomaly_detector import detect_anomaly, _detect_anomaly_heuristic
 from core.error_handling import StateTransitionError, AnomalyEngineError, ModelLoadError

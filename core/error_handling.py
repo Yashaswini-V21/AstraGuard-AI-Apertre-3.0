@@ -287,7 +287,19 @@ def safe_execute(
 
 
 class ErrorContext_ContextManager:
-    """Context manager for handling errors in a code block."""
+    """Context manager for handling errors in a code block.
+    
+    Ensures proper resource cleanup and error logging within a context.
+    Automatically captures, classifies, and logs exceptions with structured metadata.
+    
+    Resource cleanup: Automatically cleans up via __exit__ method.
+    Exception handling: All exceptions are logged with component context before processing.
+    
+    Usage:
+        with ErrorContext_ContextManager("component_name", on_error=cleanup_fn) as ctx:
+            # risky operation - resources automatically cleaned on exception or exit
+            pass
+    """
     
     def __init__(
         self,
@@ -297,13 +309,17 @@ class ErrorContext_ContextManager:
         reraise: bool = False,
     ):
         """
-        Initialize error context manager.
+        Initialize error context manager with resource cleanup support.
         
         Args:
-            component: Component name
+            component: Component name for logging and context
             default_return: Value to return on error
-            on_error: Callback to execute on error
-            reraise: Whether to reraise exception after handling
+            on_error: Optional callback for resource cleanup/alerting on error
+            reraise: Whether to reraise exception after logging and cleanup
+        
+        Note:
+            The on_error callback is invoked before resource cleanup in __exit__,
+            allowing for graceful cleanup (file handles, connections, etc).
         """
         self.component = component
         self.default_return = default_return
