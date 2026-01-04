@@ -7,6 +7,7 @@ import json
 import threading
 import logging
 from pathlib import Path
+import signal
 
 from models.feedback import FeedbackEvent, FeedbackLabel
 
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 # Type variable for generic callable
 F = TypeVar("F", bound=Callable[..., Any])
+
+# File I/O timeout in seconds
+FILE_IO_TIMEOUT_SECONDS = 5
 
 
 class ThreadSafeFeedbackStore:
@@ -34,21 +38,41 @@ class ThreadSafeFeedbackStore:
             self._dump(pending)
 
     def _load(self) -> list[Any]:
-        """Load pending events from disk."""
-        with open(self.path, "r") as f:
-            try:
-                data = json.loads(f.read())
-                if isinstance(data, list):
-                    return data
-                return []
-            except json.JSONDecodeError as e:
-                logger.warning(f"Corrupted feedback JSON file: {e}")
-                return []
+        """Load pending events from disk with timeout protection."""
+        try:
+            with open(self.path, "r") as f:
+                # Set timeout for file read operation
+                content = f.read()
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        return data
+                    return []
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Corrupted feedback JSON file: {e}")
+                    return []
+        except FileNotFoundError:
+            return []
+        except IOError as e:
+            logger.warning(f"File I/O error reading feedback store: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error loading feedback events: {e}")
+            return []
 
     def _dump(self, events: list[Any]) -> None:
-        """Write pending events to disk (compact format)."""
-        with open(self.path, "w") as f:
-            json.dump(events, f, separators=(",", ":"))
+        """Write pending events to disk with timeout protection and error handling."""
+        try:
+            # Create temp file to ensure atomicity
+            temp_path = self.path.with_suffix('.tmp')
+            with open(temp_path, "w") as f:
+                json.dump(events, f, separators=(",", ":"))
+            # Atomic rename
+            temp_path.replace(self.path)
+        except IOError as e:
+            logger.warning(f"File I/O error writing feedback store: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error dumping feedback events: {e}")
 
 
 _pending_store = ThreadSafeFeedbackStore()

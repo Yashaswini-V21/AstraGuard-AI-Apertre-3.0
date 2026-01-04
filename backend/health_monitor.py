@@ -159,7 +159,7 @@ class HealthMonitor:
         }
 
     def _get_circuit_breaker_state(self) -> Dict[str, Any]:
-        """Get circuit breaker state and metrics."""
+        """Get circuit breaker state and metrics with None safety."""
         if not self.cb:
             return {
                 "available": False,
@@ -168,24 +168,39 @@ class HealthMonitor:
                 "failures_total": 0,
                 "successes_total": 0,
                 "trips_total": 0,
+                "consecutive_failures": 0,
             }
 
-        cb_state = getattr(self.cb, "state", "UNKNOWN")
-        metrics = getattr(self.cb, "metrics", None)
+        try:
+            cb_state = getattr(self.cb, "state", "UNKNOWN")
+            metrics = getattr(self.cb, "metrics", None)
 
-        open_duration = 0
-        if cb_state == "OPEN" and metrics and metrics.state_change_time:
-            open_duration = (datetime.now() - metrics.state_change_time).total_seconds()
+            open_duration = 0
+            if cb_state == "OPEN" and metrics is not None and hasattr(metrics, "state_change_time"):
+                state_change = metrics.state_change_time
+                if state_change is not None:
+                    open_duration = (datetime.now() - state_change).total_seconds()
 
-        return {
-            "available": True,
-            "state": str(cb_state),
-            "open_duration_seconds": max(0, open_duration),
-            "failures_total": metrics.failures_total if metrics else 0,
-            "successes_total": metrics.successes_total if metrics else 0,
-            "trips_total": metrics.trips_total if metrics else 0,
-            "consecutive_failures": metrics.consecutive_failures if metrics else 0,
-        }
+            return {
+                "available": True,
+                "state": str(cb_state),
+                "open_duration_seconds": max(0, open_duration),
+                "failures_total": metrics.failures_total if metrics is not None else 0,
+                "successes_total": metrics.successes_total if metrics is not None else 0,
+                "trips_total": metrics.trips_total if metrics is not None else 0,
+                "consecutive_failures": metrics.consecutive_failures if metrics is not None else 0,
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving circuit breaker state: {e}", exc_info=False)
+            return {
+                "available": False,
+                "state": "ERROR",
+                "open_duration_seconds": 0,
+                "failures_total": 0,
+                "successes_total": 0,
+                "trips_total": 0,
+                "consecutive_failures": 0,
+            }
 
     def _get_retry_metrics(self) -> Dict[str, Any]:
         """Get retry failure metrics within time window."""
@@ -296,17 +311,49 @@ class HealthMonitor:
         retry_state: Dict[str, Any],
         system_state: Dict[str, Any],
     ) -> str:
-        """Generate reason for fallback cascade."""
+        """Generate detailed context reason for fallback cascade with full error details."""
         reasons = []
+        error_context: Dict[str, Any] = {}
 
+        # Circuit breaker context
         if cb_state.get("state") == "OPEN":
             reasons.append("circuit_open")
+            error_context["circuit_breaker"] = {
+                "state": cb_state.get("state"),
+                "open_duration_seconds": cb_state.get("open_duration_seconds", 0),
+                "failures_total": cb_state.get("failures_total", 0),
+                "consecutive_failures": cb_state.get("consecutive_failures", 0),
+            }
+        
+        # Retry failure context
         if retry_state.get("failures_1h", 0) > 50:
-            reasons.append(f"high_retry_failures({retry_state['failures_1h']})")
+            failures = retry_state["failures_1h"]
+            reasons.append(f"high_retry_failures({failures})")
+            error_context["retry_failures"] = {
+                "failures_1h": failures,
+                "failure_rate_per_second": retry_state.get("failure_rate", 0),
+                "state": retry_state.get("state", "UNKNOWN"),
+                "total_attempts": retry_state.get("total_attempts", 0),
+            }
+        
+        # Component failure context
         if system_state.get("failed_components", 0) > 0:
-            reasons.append(f"component_failures({system_state['failed_components']})")
+            failed_count = system_state["failed_components"]
+            reasons.append(f"component_failures({failed_count})")
+            error_context["component_health"] = {
+                "failed_components": failed_count,
+                "degraded_components": system_state.get("degraded_components", 0),
+                "healthy_components": system_state.get("healthy_components", 0),
+                "total_components": system_state.get("total_components", 0),
+            }
 
-        return "; ".join(reasons) if reasons else "unknown"
+        reason_str = "; ".join(reasons) if reasons else "unknown"
+        
+        # Log cascade with full context
+        if error_context:
+            logger.warning(f"Fallback cascade triggered: {reason_str} | Context: {error_context}")
+        
+        return reason_str
 
 
 # ============================================================================
