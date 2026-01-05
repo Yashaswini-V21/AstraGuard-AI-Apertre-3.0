@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astraguard-ai"
+version = "1.0.0"
+description = "AI-powered satellite security and anomaly detection platform"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "AstraGuard AI Team"}
+]
+keywords = ["satellite", "security", "anomaly-detection", "ai", "telemetry", "monitoring"]
+
+[project.urls]
+Repository = "https://github.com/purvanshjoshi/AstraGuard-AI"
+Documentation = "https://github.com/purvanshjoshi/AstraGuard-AI#readme"
+
+[tool.setuptools]
+packages = ["api", "backend", "config", "core", "classifier", "anomaly", "anomaly_agent", "astraguard", "state_machine", "memory_engine"]
+
+[tool.setuptools.package-data]
+astraguard = ["*.yaml", "*.yml"]
+config = ["*.yaml", "*.yml"]
+
+[tool.poetry]
+name = "astraguard-ai"
+version = "1.0.0"
+description = "AI-powered satellite security and anomaly detection platform"
+
+[tool.poetry.scripts]
+astraguard = "run_api:main"
+
+[tool.vercel]
+functions = { "api/index.py" = { memory = 3008, maxDuration = 30 } }
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

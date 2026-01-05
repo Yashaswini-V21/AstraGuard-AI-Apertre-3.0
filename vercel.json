@@ -1,0 +1,31 @@
+# Vercel configuration for the AstraGuard AI project
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.11"
+      }
+    },
+    {
+      "src": "frontend/astraguard-ai.site",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/astraguard-ai.site"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@api_url"
+  }
+}
