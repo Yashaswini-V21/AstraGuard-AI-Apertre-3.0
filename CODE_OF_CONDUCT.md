@@ -11,7 +11,7 @@ We are committed to fostering an environment that respects the dignity, rights, 
 ---
 ### Expected Behavior
 
-   - All participants are expected to:
+All participants are expected to:
    - Be respectful, professional, and considerate in communication.
    - Focus discussions on technical merit and project goals.
    - Give and accept clear, direct, and constructive feedback.
