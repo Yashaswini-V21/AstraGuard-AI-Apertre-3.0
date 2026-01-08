@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AnomalyEvent } from '../../types/dashboard';
 import { useReportExport } from '../../hooks/useReportExport';
 import { AnalysisResult, FeatureImportance } from '../../types/analysis';
+import { AIService } from '../../../services/ai-service';
 
 interface Props {
     anomaly: AnomalyEvent;
@@ -44,7 +45,7 @@ export const AnomalyInvestigator: React.FC<Props> = ({ anomaly, onClose }) => {
         const fetchAnalysis = async () => {
             try {
                 setLoading(true);
-                // Using port 8002 as configured
+                // Try fetching from real API first
                 const res = await fetch('http://localhost:8002/api/v1/analysis/investigate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -58,20 +59,31 @@ export const AnomalyInvestigator: React.FC<Props> = ({ anomaly, onClose }) => {
                     })
                 });
 
-                if (!res.ok) {
-                    // Fallback to mock when server unavailable
-                    throw new Error(`Status ${res.status}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && !data.feature_importances) {
+                        data.feature_importances = generateMockAnalysis(anomaly).feature_importances;
+                    }
+                    setResult(data);
+                } else {
+                    // Fallback to AIService (which is also mocked but centralized)
+                    const aiService = AIService.getInstance();
+                    const aiAnalysis = await aiService.analyzeAnomaly(anomaly);
+                    const mockResult = generateMockAnalysis(anomaly);
+                    setResult({
+                        ...mockResult,
+                        analysis: aiAnalysis
+                    });
                 }
-
-                const data = await res.json();
-                // If response doesn't include explainability data, supplement with mock explainability
-                if (data && !data.feature_importances) {
-                    data.feature_importances = generateMockAnalysis(anomaly).feature_importances;
-                }
-                setResult(data);
             } catch (err) {
-                console.warn('Analysis service unavailable, using local explainability mock.', err);
-                setResult(generateMockAnalysis(anomaly));
+                console.warn('Analysis service unavailable, using AIService fallback.', err);
+                const aiService = AIService.getInstance();
+                const aiAnalysis = await aiService.analyzeAnomaly(anomaly);
+                const mockResult = generateMockAnalysis(anomaly);
+                setResult({
+                    ...mockResult,
+                    analysis: aiAnalysis
+                });
             } finally {
                 setLoading(false);
             }

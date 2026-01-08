@@ -22,6 +22,7 @@ import { CommandPalette } from '../components/ui/CommandPalette';
 import { BattleModeOverlay } from '../components/ui/BattleModeOverlay';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useSoundEffects } from '../hooks/useSoundEffects';
+import { CopilotChat } from '../components/dashboard/CopilotChat';
 
 const DashboardContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'mission' | 'systems' | 'chaos' | 'uplink'>('mission');
@@ -191,6 +192,7 @@ const DashboardContent: React.FC = () => {
           <span>AstraGuard Defense Systems v1.0</span>
           <span>Authorized Personnel Only • Class 1 Clearance</span>
         </footer>
+        <CopilotChat />
       </div>
     </div>
   );

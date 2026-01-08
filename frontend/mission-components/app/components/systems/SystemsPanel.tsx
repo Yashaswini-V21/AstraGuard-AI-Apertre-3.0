@@ -6,10 +6,12 @@ import { MetricsCharts } from './MetricsCharts';
 import { HealthTable } from './HealthTable';
 import { PredictiveAnalysis } from './PredictiveAnalysis';
 import { useDashboard } from '../../context/DashboardContext';
+import { usePredictiveData } from '../../hooks/usePredictiveData';
 
 export const SystemsPanel: React.FC = () => {
     const { state } = useDashboard();
     const { kpis, breakers, charts, health } = state.systems;
+    const predictiveKpis = usePredictiveData(kpis);
 
     // Render logic remains similar, but data comes from context
     return (
@@ -20,7 +22,7 @@ export const SystemsPanel: React.FC = () => {
                     System Health Overview
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
-                    {kpis.map(kpi => <KPICard key={kpi.id} {...kpi} />)}
+                    {predictiveKpis.map(kpi => <KPICard key={kpi.id} {...kpi} />)}
                 </div>
             </section>
 

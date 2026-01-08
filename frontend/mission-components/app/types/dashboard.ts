@@ -28,6 +28,8 @@ export interface AnomalyEvent {
   metric: string;
   value: string;
   acknowledged: boolean;
+  aiRCA?: string;
+  analysisStatus?: 'pending' | 'completed' | 'failed';
 }
 
 export interface MissionState {
