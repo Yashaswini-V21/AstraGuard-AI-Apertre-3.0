@@ -9,10 +9,9 @@ import time
 from datetime import datetime
 from typing import List
 from collections import deque
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi import FastAPI, HTTPException, status, Depends
 from contextlib import asynccontextmanager
 import secrets
 
@@ -28,6 +27,22 @@ from api.models import (
     AnomalyHistoryQuery,
     AnomalyHistoryResponse,
     HealthCheckResponse,
+    UserCreateRequest,
+    UserResponse,
+    APIKeyCreateRequest,
+    APIKeyResponse,
+    APIKeyCreateResponse,
+    LoginRequest,
+    TokenResponse,
+)
+from core.auth import (
+    get_auth_manager,
+    get_current_user,
+    require_admin,
+    require_operator,
+    require_analyst,
+    UserRole,
+    Permission,
 )
 from state_machine.state_engine import StateMachine, MissionPhase
 from config.mission_phase_policy_loader import MissionPhasePolicyLoader
@@ -367,7 +382,7 @@ async def metrics(username: str = Depends(get_current_username)):
 
 
 @app.post("/api/v1/telemetry", response_model=AnomalyResponse, status_code=status.HTTP_200_OK)
-async def submit_telemetry(telemetry: TelemetryInput):
+async def submit_telemetry(telemetry: TelemetryInput, current_user: User = Depends(require_operator)):
     """
     Submit single telemetry point for anomaly detection.
 
@@ -502,7 +517,7 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
 
 
 @app.post("/api/v1/telemetry/batch", response_model=BatchAnomalyResponse)
-async def submit_telemetry_batch(batch: TelemetryBatch):
+async def submit_telemetry_batch(batch: TelemetryBatch, current_user: User = Depends(require_operator)):
     """
     Submit batch of telemetry points for anomaly detection.
 
@@ -558,7 +573,7 @@ async def get_phase():
 
 
 @app.post("/api/v1/phase", response_model=PhaseUpdateResponse)
-async def update_phase(request: PhaseUpdateRequest):
+async def update_phase(request: PhaseUpdateRequest, current_user: User = Depends(require_admin)):
     """Update mission phase."""
     try:
         target_phase = MissionPhase(request.phase.value)
@@ -632,6 +647,93 @@ async def get_anomaly_history(
         start_time=start_time,
         end_time=end_time
     )
+
+
+# Authentication endpoints
+@app.post("/api/v1/auth/login", response_model=TokenResponse)
+async def login(request: LoginRequest):
+    """Authenticate user and return JWT token."""
+    auth_manager = get_auth_manager()
+    token = await auth_manager.authenticate_user(request.username, request.password)
+    return TokenResponse(access_token=token, token_type="bearer")
+
+
+@app.post("/api/v1/auth/users", response_model=UserResponse)
+async def create_user(request: UserCreateRequest, current_user: User = Depends(require_admin)):
+    """Create a new user (admin only)."""
+    auth_manager = get_auth_manager()
+    user = await auth_manager.create_user(
+        username=request.username,
+        password=request.password,
+        role=request.role,
+        email=request.email
+    )
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        role=user.role.value,
+        email=user.email,
+        created_at=user.created_at,
+        is_active=user.is_active
+    )
+
+
+@app.get("/api/v1/auth/users/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information."""
+    return UserResponse(
+        id=current_user.id,
+        username=current_user.username,
+        role=current_user.role.value,
+        email=current_user.email,
+        created_at=current_user.created_at,
+        is_active=current_user.is_active
+    )
+
+
+@app.post("/api/v1/auth/apikeys", response_model=APIKeyCreateResponse)
+async def create_api_key(request: APIKeyCreateRequest, current_user: User = Depends(get_current_user)):
+    """Create a new API key for the current user."""
+    auth_manager = get_auth_manager()
+    api_key = await auth_manager.create_api_key(
+        user_id=current_user.id,
+        name=request.name,
+        permissions=request.permissions
+    )
+    return APIKeyCreateResponse(
+        id=api_key.id,
+        name=api_key.name,
+        key=api_key.key,
+        permissions=api_key.permissions,
+        created_at=api_key.created_at,
+        expires_at=api_key.expires_at
+    )
+
+
+@app.get("/api/v1/auth/apikeys", response_model=List[APIKeyResponse])
+async def list_api_keys(current_user: User = Depends(get_current_user)):
+    """List API keys for the current user."""
+    auth_manager = get_auth_manager()
+    api_keys = await auth_manager.get_user_api_keys(current_user.id)
+    return [
+        APIKeyResponse(
+            id=key.id,
+            name=key.name,
+            permissions=key.permissions,
+            created_at=key.created_at,
+            expires_at=key.expires_at,
+            last_used=key.last_used
+        )
+        for key in api_keys
+    ]
+
+
+@app.delete("/api/v1/auth/apikeys/{key_id}")
+async def revoke_api_key(key_id: str, current_user: User = Depends(get_current_user)):
+    """Revoke an API key."""
+    auth_manager = get_auth_manager()
+    await auth_manager.revoke_api_key(key_id, current_user.id)
+    return {"message": "API key revoked successfully"}
 
 
 if __name__ == "__main__":
