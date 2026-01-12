@@ -280,6 +280,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Include routers
+from api.contact import router as contact_router
+app.include_router(contact_router)
+
 # CORS configuration from environment variables
 # Security: Never use allow_origins=["*"] with allow_credentials=True in production
 ALLOWED_ORIGINS = get_secret("allowed_origins").split(",")
