@@ -65,7 +65,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r config/requirements-ci.txt
           pip install pytest pytest-asyncio pytest-docker docker
       
       - name: Start constellation (docker-compose)
@@ -115,7 +115,7 @@ jobs:
       
       - name: Upload metrics artifact
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: e2e-metrics-${{ matrix.scenario }}
           path: e2e-metrics-${{ matrix.scenario }}.json
@@ -207,7 +207,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r config/requirements-ci.txt
           pip install pytest pytest-asyncio pytest-docker docker
       
       - name: Start constellation

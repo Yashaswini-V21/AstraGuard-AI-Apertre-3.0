@@ -18,11 +18,14 @@ Success metrics:
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 import docker
 
-from anomaly_injector import AnomalyInjector, AnomalySeverity, AnomalyEvent
+if TYPE_CHECKING:
+    from docker.client import DockerClient
+
+from .anomaly_injector import AnomalyInjector, AnomalySeverity, AnomalyEvent
 
 
 class RecoveryStage(Enum):
@@ -88,7 +91,7 @@ class RecoveryPipelineTest:
     - All #397-413 components: Full pipeline
     """
     
-    def __init__(self, docker_client: docker.DockerClient):
+    def __init__(self, docker_client: "DockerClient"):
         """Initialize E2E test suite."""
         self.docker_client = docker_client
         self.anomaly_injector = AnomalyInjector(docker_client)
