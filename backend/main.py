@@ -24,6 +24,9 @@ from fastapi import FastAPI, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+# Import centralized secrets management
+from core.secrets import get_secret
+
 # Import modules
 from backend.health_monitor import (
     router as health_router,
@@ -42,8 +45,9 @@ from core.circuit_breaker import get_all_circuit_breakers
 import anomaly.anomaly_detector  # noqa: F401
 
 # Configure logging
+log_level = get_secret("log_level", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -53,8 +57,8 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 # Chaos engineering endpoints are only available when explicitly enabled
-CHAOS_ENABLED = os.getenv("ENABLE_CHAOS", "false").lower() == "true"
-CHAOS_ADMIN_KEY = os.getenv("CHAOS_ADMIN_KEY", "")
+CHAOS_ENABLED = get_secret("chaos_enabled", False)
+CHAOS_ADMIN_KEY = get_secret("chaos_admin_key", "")
 
 
 async def verify_chaos_admin_access(x_chaos_admin_key: str = Header(None)) -> None:
@@ -166,7 +170,7 @@ async def lifespan(app: FastAPI):
         # Initialize Redis client (Issue #18)
         import os
 
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_url = get_secret("redis_url")
         redis_client = RedisClient(redis_url=redis_url)
         redis_connected = await redis_client.connect()
 
@@ -315,6 +319,10 @@ def create_app() -> FastAPI:
 
     # Health monitor routes (Issue #16)
     app.include_router(health_router)
+
+    # External monitoring integrations (Issue #183)
+    from backend.monitoring_integrations import router as monitoring_router
+    app.include_router(monitoring_router)
 
     # Root endpoint
     @app.get("/")

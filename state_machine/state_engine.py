@@ -2,6 +2,7 @@ from enum import Enum
 from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
+import threading
 
 # Import error handling
 from core.error_handling import StateTransitionError
@@ -74,6 +75,10 @@ class StateMachine:
         self.recovery_start_time = None
         self.recovery_duration = 5  # seconds (simulated)
         self.recovery_steps = 0
+        
+        # Thread-safe lock for phase transitions
+        self._transition_lock = threading.RLock()
+        self._is_transitioning = False
 
         # Register with health monitor (guarantee HEALTHY status)
         try:
@@ -120,52 +125,76 @@ class StateMachine:
         Raises:
             StateTransitionError: If phase transition fails after retry
         """
+        # Acquire lock to prevent concurrent transitions
+        with self._transition_lock:
+            # Check if another transition is already in progress
+            if self._is_transitioning:
+                raise StateTransitionError(
+                    "Phase transition already in progress. Please wait for the current transition to complete.",
+                    component="state_machine",
+                    context={
+                        "current_phase": self.current_phase.value,
+                        "target_phase": str(phase),
+                        "status": "transition_in_progress"
+                    }
+                )
+            
+            # Mark transition as in progress
+            self._is_transitioning = True
+            
         health_monitor = get_health_monitor()
         previous_phase = self.current_phase  # Capture before any validation
 
+
         try:
-            if not isinstance(phase, MissionPhase):
-                raise StateTransitionError(
-                    f"Invalid phase type: {type(phase)}",
-                    component="state_machine",
-                    context={"phase_type": str(type(phase))},
-                )
-
-            # Validate phase using MissionPhaseValidator
             try:
-                validated_phase_str = MissionPhaseValidator.validate_phase(phase.value)
-                validated_phase = MissionPhase(validated_phase_str)
+                # Validate phase string and type
+                if isinstance(phase, MissionPhase):
+                    target_phase_str = phase.value
+                elif isinstance(phase, str):
+                    target_phase_str = phase
+                else:
+                     raise ValidationError(f"Invalid phase type: {type(phase)}")
+
+                # Use central validator for phase name
+                target_phase_str = MissionPhaseValidator.validate_phase(target_phase_str)
+                
+                # Convert back to Enum if needed for internal consistency
+                try:
+                    target_phase_enum = MissionPhase(target_phase_str)
+                except ValueError:
+                     raise ValidationError(f"Phase {target_phase_str} not found in MissionPhase enum")
+
+                if self.current_phase == target_phase_enum:
+                    health_monitor.mark_healthy("state_machine")
+                    return {
+                        "success": True,
+                        "previous_phase": self.current_phase.value,
+                        "new_phase": target_phase_enum.value,
+                        "message": "Already in target phase",
+                    }
+
+                # Use central validator for transition
+                MissionPhaseValidator.validate_transition(self.current_phase.value, target_phase_str)
             except ValidationError as e:
+                # Map ValidationError to StateTransitionError for API compatibility
                 raise StateTransitionError(
-                    f"Phase validation failed: {e}",
+                    str(e),
                     component="state_machine",
-                    context={"validation_error": str(e)},
-                )
+                    context={
+                        "current_phase": self.current_phase.value,
+                        "target_phase": str(phase)
+                    }
+                ) from e
+            
+            # If we get here, transition is valid
+            phase = target_phase_enum
 
-            if self.current_phase == validated_phase:
-                health_monitor.mark_healthy("state_machine")
-                return {
-                    "success": True,
-                    "previous_phase": self.current_phase.value,
-                    "new_phase": validated_phase.value,
-                    "message": "Already in target phase",
-                }
-
-            # Check if transition is valid using MissionPhaseValidator
-            try:
-                MissionPhaseValidator.validate_transition(
-                    self.current_phase.value, validated_phase.value
-                )
-            except ValidationError as e:
-                raise StateTransitionError(
-                    f"Invalid phase transition: {e}",
-                    component="state_machine",
-                    context={"validation_error": str(e)},
-                )
-
-            self.current_phase = phase
-            self.phase_start_time = datetime.now()
-            self.phase_history.append((phase, datetime.now()))
+            # Perform atomic state update within lock
+            with self._transition_lock:
+                self.current_phase = phase
+                self.phase_start_time = datetime.now()
+                self.phase_history.append((phase, datetime.now()))
 
             # Update Prometheus metrics
             try:
@@ -231,6 +260,10 @@ class StateMachine:
                 "state_machine", error_msg=str(e), metadata={"error_type": "unexpected"}
             )
             raise
+        finally:
+            # Always reset transition flag when exiting
+            with self._transition_lock:
+                self._is_transitioning = False
 
     def process_fault(
         self, fault_type: str, telemetry: Dict[str, Any]
@@ -296,10 +329,15 @@ class StateMachine:
         Forcibly transition to SAFE_MODE (emergency procedure).
         Always allowed regardless of current phase.
         """
-        previous_phase = self.current_phase
-        self.current_phase = MissionPhase.SAFE_MODE
-        self.phase_start_time = datetime.now()
-        self.phase_history.append((MissionPhase.SAFE_MODE, datetime.now()))
+        # Use lock to ensure atomic transition even for forced safe mode
+        with self._transition_lock:
+            # Force safe mode can interrupt ongoing transitions
+            previous_phase = self.current_phase
+            self.current_phase = MissionPhase.SAFE_MODE
+            self.phase_start_time = datetime.now()
+            self.phase_history.append((MissionPhase.SAFE_MODE, datetime.now()))
+            # Reset transition flag if it was set
+            self._is_transitioning = False
 
         # Update Prometheus metrics
         try:

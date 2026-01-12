@@ -31,6 +31,16 @@ class TelemetryInput(BaseModel):
     gyro: float = Field(..., description="Gyroscope reading in rad/s")
     current: Optional[float] = Field(None, ge=0, description="Current in amperes")
     wheel_speed: Optional[float] = Field(None, ge=0, description="Reaction wheel speed in RPM")
+
+    # Predictive maintenance fields
+    cpu_usage: Optional[float] = Field(None, ge=0, le=100, description="CPU usage percentage")
+    memory_usage: Optional[float] = Field(None, ge=0, le=100, description="Memory usage percentage")
+    network_latency: Optional[float] = Field(None, ge=0, description="Network latency in ms")
+    disk_io: Optional[float] = Field(None, ge=0, description="Disk I/O operations per second")
+    error_rate: Optional[float] = Field(None, ge=0, description="Error rate per minute")
+    response_time: Optional[float] = Field(None, ge=0, description="Response time in ms")
+    active_connections: Optional[int] = Field(None, ge=0, description="Number of active connections")
+
     timestamp: Optional[datetime] = Field(None, description="Telemetry timestamp")
 
     @field_validator('timestamp', mode='before')
@@ -133,7 +143,7 @@ class HealthCheckResponse(BaseModel):
 class UserCreateRequest(BaseModel):
     """Request to create a new user."""
     username: str = Field(..., min_length=3, max_length=50)
-    email: str = Field(..., regex=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
     role: UserRole
     password: Optional[str] = Field(None, min_length=8)
 

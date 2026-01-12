@@ -1,19 +1,13 @@
 """
-Authentication and Authorization Module for AstraGuard AI
+Core Authentication Module
 
-Provides comprehensive API security including:
-- API key generation, validation, and rotation
-- Role-Based Access Control (RBAC) with operator, analyst, admin roles
-- JWT token management with configurable expiration
-- Secure key storage with encryption
-- User management functions
-- Audit logging integration
+Provides API key management and RBAC (Role-Based Access Control) functionality.
+This module handles the core authentication logic independent of the web framework.
 """
 
 import os
 import secrets
 import hashlib
-import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
@@ -141,108 +135,105 @@ class APIKey:
     id: str
     user_id: str
     name: str
-    hashed_key: str
     created_at: datetime
     expires_at: Optional[datetime] = None
-    last_used: Optional[datetime] = None
+    permissions: Set[str] = {"read", "write"}  # Default permissions
+    rate_limit: int = 1000  # Requests per hour
     is_active: bool = True
-    rate_limit: Optional[int] = None  # requests per minute
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage."""
-        data = asdict(self)
-        data['created_at'] = self.created_at.isoformat()
-        if self.expires_at:
-            data['expires_at'] = self.expires_at.isoformat()
-        if self.last_used:
-            data['last_used'] = self.last_used.isoformat()
-        return data
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'APIKey':
-        """Create from dictionary."""
-        data['created_at'] = datetime.fromisoformat(data['created_at'])
-        if data.get('expires_at'):
-            data['expires_at'] = datetime.fromisoformat(data['expires_at'])
-        if data.get('last_used'):
-            data['last_used'] = datetime.fromisoformat(data['last_used'])
-        return cls(**data)
-
-    def is_expired(self) -> bool:
-        """Check if API key is expired."""
-        if self.expires_at:
-            return datetime.now() > self.expires_at
-        return False
+    metadata: Dict[str, str] = {}
 
 
-class AuthManager:
-    """Central authentication and authorization manager."""
+class APIKeyManager:
+    """
+    Manages API keys for authentication and authorization.
 
-    def __init__(self):
-        self.logger = get_logger(__name__)
-        self._encryption_key = self._load_or_create_encryption_key()
-        self._fernet = Fernet(self._encryption_key)
-        self._users = self._load_users()
-        self._api_keys = self._load_api_keys()
-        self._jwt_secret = self._get_jwt_secret()
+    Features:
+    - Multiple API keys with different permissions
+    - Key expiration
+    - Rate limiting
+    - Key rotation support
+    """
 
-    def _load_or_create_encryption_key(self) -> bytes:
-        """Load or create encryption key for secure storage."""
-        if ENCRYPTION_KEY_FILE.exists():
-            with open(ENCRYPTION_KEY_FILE, 'rb') as f:
-                return f.read()
+    def __init__(self, keys_file: str = "config/api_keys.json"):
+        """
+        Initialize API key manager.
 
-        # Generate new key
-        key = Fernet.generate_key()
-        with open(ENCRYPTION_KEY_FILE, 'wb') as f:
-            f.write(key)
-        return key
+        Args:
+            keys_file: Path to JSON file storing API keys
+        """
+        self.keys_file = keys_file
+        self.api_keys: Dict[str, APIKey] = {}
+        self.key_hashes: Dict[str, str] = {}  # Store hashed versions for security
+        self.rate_limits: Dict[str, List[datetime]] = {}  # Track request timestamps
 
-    def _load_users(self) -> Dict[str, User]:
-        """Load users from encrypted storage."""
-        if not USERS_FILE.exists():
-            return {}
+        # Load existing keys
+        self._load_keys()
 
+        # Create default key if none exist (for development)
+        if not self.api_keys:
+            self._create_default_key()
+
+    def _load_keys(self) -> None:
+        """Load API keys from file."""
+        if os.path.exists(self.keys_file):
+            try:
+                with open(self.keys_file, 'r') as f:
+                    data = json.load(f)
+
+                for key_data in data.get('keys', []):
+                    # Convert string timestamps back to datetime
+                    created_at = datetime.fromisoformat(key_data['created_at'])
+                    expires_at = None
+                    if key_data.get('expires_at'):
+                        expires_at = datetime.fromisoformat(key_data['expires_at'])
+
+                    key = APIKey(
+                        key=key_data['key'],
+                        name=key_data['name'],
+                        created_at=created_at,
+                        expires_at=expires_at,
+                        permissions=set(key_data.get('permissions', ['read', 'write'])),
+                        rate_limit=key_data.get('rate_limit', 1000),
+                        is_active=key_data.get('is_active', True),
+                        metadata=key_data.get('metadata', {})
+                    )
+
+                    self.api_keys[key.key] = key
+                    self.key_hashes[hashlib.sha256(key.key.encode()).hexdigest()] = key.key
+
+                logger.info(f"Loaded {len(self.api_keys)} API keys from {self.keys_file}")
+
+            except Exception as e:
+                logger.error(f"Failed to load API keys: {e}")
+                # Create backup default key
+                self._create_default_key()
+
+    def _save_keys(self) -> None:
+        """Save API keys to file."""
         try:
-            with open(USERS_FILE, 'rb') as f:
-                encrypted_data = f.read()
-            decrypted_data = self._fernet.decrypt(encrypted_data)
-            users_data = json.loads(decrypted_data.decode())
+            os.makedirs(os.path.dirname(self.keys_file), exist_ok=True)
 
-            users = {}
-            for user_data in users_data.values():
-                user = User.from_dict(user_data)
-                users[user.id] = user
-            return users
-        except Exception as e:
-            self.logger.error(f"Failed to load users: {e}")
-            return {}
+            data = {
+                'keys': [
+                    {
+                        'key': key.key,
+                        'name': key.name,
+                        'created_at': key.created_at.isoformat(),
+                        'expires_at': key.expires_at.isoformat() if key.expires_at else None,
+                        'permissions': list(key.permissions),
+                        'rate_limit': key.rate_limit,
+                        'is_active': key.is_active,
+                        'metadata': key.metadata
+                    }
+                    for key in self.api_keys.values()
+                ]
+            }
 
-    def _save_users(self):
-        """Save users to encrypted storage."""
-        users_data = {uid: user.to_dict() for uid, user in self._users.items()}
-        json_data = json.dumps(users_data).encode()
-        encrypted_data = self._fernet.encrypt(json_data)
+            with open(self.keys_file, 'w') as f:
+                json.dump(data, f, indent=2)
 
-        with open(USERS_FILE, 'wb') as f:
-            f.write(encrypted_data)
+            logger.info(f"Saved {len(self.api_keys)} API keys to {self.keys_file}")
 
-    def _load_api_keys(self) -> Dict[str, APIKey]:
-        """Load API keys from encrypted storage."""
-        if not API_KEYS_FILE.exists():
-            return {}
-
-        try:
-            with open(API_KEYS_FILE, 'rb') as f:
-                encrypted_data = f.read()
-            decrypted_data = self._fernet.decrypt(encrypted_data)
-            keys_data = json.loads(decrypted_data.decode())
-
-            api_keys = {}
-            for key_data in keys_data.values():
-                api_key = APIKey.from_dict(key_data)
-                api_keys[api_key.id] = api_key
-            return api_keys
         except Exception as e:
             self.logger.error(f"Failed to load API keys: {e}")
             return {}
@@ -303,11 +294,52 @@ class AuthManager:
             email=email,
             role=role,
             created_at=datetime.now(),
-            hashed_password=hashed_password
+            permissions={"read", "write", "admin"},
+            rate_limit=10000,  # Higher limit for development
+            metadata={"environment": "development", "auto_generated": "true"}
         )
 
-        self._users[user_id] = user
-        self._save_users()
+        self.api_keys[default_key] = key
+        self.key_hashes[hashlib.sha256(default_key.encode()).hexdigest()] = default_key
+        self._save_keys()
+
+        print("\n" + "=" * 80)
+        print("🔑 DEFAULT API KEY CREATED")
+        print("=" * 80)
+        print("A default API key has been created for development:")
+        print(f"API Key: {default_key}")
+        print()
+        print("⚠️  SECURITY WARNING:")
+        print("This key has full access and should NOT be used in production!")
+        print("Set the API_KEYS environment variable or create keys via the API.")
+        print("=" * 80 + "\n")
+
+    def create_key(self,
+                   name: str,
+                   permissions: Set[str] = None,
+                   expires_in_days: int = None,
+                   rate_limit: int = 1000,
+                   metadata: Dict[str, str] = None) -> str:
+        """
+        Create a new API key.
+
+        Args:
+            name: Human-readable name for the key
+            permissions: Set of permissions (read, write, admin)
+            expires_in_days: Days until key expires
+            rate_limit: Requests per hour
+            metadata: Additional metadata
+
+        Returns:
+            The generated API key
+        """
+        if permissions is None:
+            permissions = {"read", "write"}
+
+        key_value = secrets.token_urlsafe(32)
+        expires_at = None
+        if expires_in_days:
+            expires_at = datetime.now() + timedelta(days=expires_in_days)
 
         self.logger.info("user_created", user_id=user_id, username=username, role=role.value)
 
@@ -323,47 +355,30 @@ class AuthManager:
 
         return user
 
-    def get_user(self, user_id: str) -> Optional[User]:
-        """Get user by ID."""
-        return self._users.get(user_id)
+        self.api_keys[key_value] = key
+        self.key_hashes[hashlib.sha256(key_value.encode()).hexdigest()] = key_value
+        self._save_keys()
 
-    def get_user_by_username(self, username: str) -> Optional[User]:
-        """Get user by username."""
-        for user in self._users.values():
-            if user.username == username:
-                return user
-        return None
+        logger.info(f"Created API key '{name}' with permissions: {permissions}")
+        return key_value
 
-    def update_user_last_login(self, user_id: str):
-        """Update user's last login timestamp."""
-        if user_id in self._users:
-            self._users[user_id].last_login = datetime.now()
-            self._save_users()
+    def validate_key(self, api_key: str) -> APIKey:
+        """
+        Validate an API key and return its details.
 
-    def generate_api_key(self, user_id: str, name: str, expiration_days: Optional[int] = None,
-                        rate_limit: Optional[int] = None) -> Tuple[str, APIKey]:
-        """Generate a new API key for a user."""
-        if user_id not in self._users:
-            raise ValueError(f"User {user_id} not found")
+        Args:
+            api_key: The API key to validate
 
-        # Generate secure random API key
-        api_key = secrets.token_urlsafe(API_KEY_LENGTH)
-        hashed_key = self._hash_api_key(api_key)
+        Returns:
+            APIKey object if valid
 
-        key_id = secrets.token_urlsafe(16)
-        expires_at = None
-        if expiration_days:
-            expires_at = datetime.now() + timedelta(days=expiration_days)
+        Raises:
+            ValueError: If key is invalid, expired, or inactive
+        """
+        if api_key not in self.api_keys:
+            raise ValueError("Invalid API key")
 
-        api_key_obj = APIKey(
-            id=key_id,
-            user_id=user_id,
-            name=name,
-            hashed_key=hashed_key,
-            created_at=datetime.now(),
-            expires_at=expires_at,
-            rate_limit=rate_limit
-        )
+        key = self.api_keys[api_key]
 
         self._api_keys[key_id] = api_key_obj
         self._save_api_keys()
@@ -658,40 +673,139 @@ class UserResponse(BaseModel):
     last_login: Optional[datetime]
     is_active: bool
 
+        return key
 
-class APIKeyCreateRequest(BaseModel):
-    """Request to create a new API key."""
-    name: str = Field(..., min_length=1, max_length=100)
-    expiration_days: Optional[int] = Field(None, ge=1, le=365*2)
-    rate_limit: Optional[int] = Field(None, ge=1, le=10000)
+    def check_rate_limit(self, api_key: str) -> None:
+        """
+        Check if the API key has exceeded its rate limit.
+
+        Args:
+            api_key: The API key to check
+
+        Raises:
+            ValueError: If rate limit exceeded
+        """
+        if api_key not in self.api_keys:
+            return  # Invalid keys are caught elsewhere
+
+        key = self.api_keys[api_key]
+        now = datetime.now()
+
+        # Initialize rate tracking for this key
+        if api_key not in self.rate_limits:
+            self.rate_limits[api_key] = []
+
+        # Clean old timestamps (older than 1 hour)
+        cutoff = now - timedelta(hours=1)
+        self.rate_limits[api_key] = [
+            ts for ts in self.rate_limits[api_key] if ts > cutoff
+        ]
+
+        # Check rate limit
+        if len(self.rate_limits[api_key]) >= key.rate_limit:
+            raise ValueError(f"Rate limit exceeded. Maximum {key.rate_limit} requests per hour.")
+
+        # Add current request timestamp
+        self.rate_limits[api_key].append(now)
+
+    def revoke_key(self, api_key: str) -> bool:
+        """
+        Revoke an API key.
+
+        Args:
+            api_key: The API key to revoke
+
+        Returns:
+            True if key was revoked, False if not found
+        """
+        if api_key in self.api_keys:
+            self.api_keys[api_key].is_active = False
+            self._save_keys()
+            logger.info(f"Revoked API key: {api_key}")
+            return True
+        return False
+
+    def list_keys(self) -> List[Dict]:
+        """
+        List all API keys (without showing the actual key values).
+
+        Returns:
+            List of key metadata
+        """
+        return [
+            {
+                "name": key.name,
+                "created_at": key.created_at.isoformat(),
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                "permissions": list(key.permissions),
+                "rate_limit": key.rate_limit,
+                "is_active": key.is_active,
+                "metadata": key.metadata
+            }
+            for key in self.api_keys.values()
+        ]
+
+    def has_permission(self, api_key: str, permission: str) -> bool:
+        """
+        Check if an API key has a specific permission.
+
+        Args:
+            api_key: The API key to check
+            permission: The permission to check for
+
+        Returns:
+            True if the key has the permission
+        """
+        try:
+            key = self.validate_key(api_key)
+            return permission in key.permissions
+        except ValueError:
+            return False
 
 
-class APIKeyResponse(BaseModel):
-    """API key information response."""
-    id: str
-    name: str
-    created_at: datetime
-    expires_at: Optional[datetime]
-    last_used: Optional[datetime]
-    is_active: bool
-    rate_limit: Optional[int]
+# Global API key manager instance
+_api_key_manager = None
+
+def get_api_key_manager() -> APIKeyManager:
+    """Get the global API key manager instance."""
+    global _api_key_manager
+    if _api_key_manager is None:
+        _api_key_manager = APIKeyManager()
+    return _api_key_manager
 
 
-class APIKeyCreateResponse(BaseModel):
-    """Response when creating a new API key."""
-    key: str
-    key_info: APIKeyResponse
+# Initialize API keys from environment variable (optional)
+def initialize_from_env():
+    """Initialize API keys from environment variables."""
+    api_keys_env = get_secret("api_keys")
+    if api_keys_env:
+        try:
+            # Expected format: name1:key1,name2:key2
+            key_manager = get_api_key_manager()
+            for key_pair in api_keys_env.split(","):
+                if ":" in key_pair:
+                    name, key_value = key_pair.split(":", 1)
+                    name = name.strip()
+                    key_value = key_value.strip()
+
+                    # Check if key already exists
+                    if key_value not in key_manager.api_keys:
+                        key = APIKey(
+                            key=key_value,
+                            name=name,
+                            created_at=datetime.now(),
+                            permissions={"read", "write"},
+                            metadata={"source": "environment"}
+                        )
+                        key_manager.api_keys[key_value] = key
+                        key_manager.key_hashes[hashlib.sha256(key_value.encode()).hexdigest()] = key_value
+
+            key_manager._save_keys()
+            logger.info("Initialized API keys from environment")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize API keys from environment: {e}")
 
 
-class LoginRequest(BaseModel):
-    """Login request for JWT token."""
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """JWT token response."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int  # seconds
-    user: UserResponse
+# Initialize on module load
+initialize_from_env()
