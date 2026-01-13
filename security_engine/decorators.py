@@ -22,6 +22,12 @@ F = TypeVar("F", bound=Callable[..., Any])
 # File I/O timeout in seconds
 FILE_IO_TIMEOUT_SECONDS = 5
 
+# Try to import msvcrt for Windows file locking
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
 
 class ThreadSafeFeedbackStore:
     """Atomic pending events storage with thread-safe operations."""
@@ -29,6 +35,8 @@ class ThreadSafeFeedbackStore:
     def __init__(self, path: Path = Path("feedback_pending.json")):
         self.path = path
         self.lock = threading.Lock()
+        # Import msvcrt on Windows for file locking
+        self.msvcrt = msvcrt if platform.system() == "Windows" else None
 
     def append(self, event: FeedbackEvent) -> None:
         """Thread-safely append event to pending store."""

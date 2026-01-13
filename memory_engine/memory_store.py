@@ -114,7 +114,8 @@ class AdaptiveMemoryStore:
         Raises:
             ValueError: If embedding is empty or metadata is not a dict
         """
-        if not embedding:
+        # Check if embedding is None or empty (handle numpy arrays properly)
+        if embedding is None or (hasattr(embedding, 'size') and embedding.size == 0):
             raise ValueError("Embedding cannot be empty")
         if not isinstance(metadata, dict):
             raise ValueError("Metadata must be a dictionary")
@@ -337,6 +338,13 @@ class AdaptiveMemoryStore:
 
     def _cosine_similarity(self, a: Union[List[float], "np.ndarray"], b: Union[List[float], "np.ndarray"]) -> float:
         """Calculate cosine similarity between vectors."""
+        # Ensure both vectors have the same shape
+        a_len = len(a) if isinstance(a, list) else a.size
+        b_len = len(b) if isinstance(b, list) else b.size
+        if a_len != b_len:
+            # Dimension mismatch - return 0 (completely different)
+            return 0.0
+        
         if np is not None:
             return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10)
         else:

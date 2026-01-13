@@ -30,6 +30,21 @@ class MemoryStorage(Storage):
         self._ttls: Dict[str, float] = {}  # key -> expiry timestamp
         self._counters: Dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
+        self.connected = False
+
+    async def connect(self) -> bool:
+        """Connect to storage (no-op for in-memory)."""
+        self.connected = True
+        return True
+
+    async def close(self) -> bool:
+        """Close storage connection (no-op for in-memory)."""
+        self.connected = False
+        return True
+
+    async def health_check(self) -> bool:
+        """Check storage health (always healthy for in-memory)."""
+        return self.connected
 
     async def get(self, key: str) -> Optional[Any]:
         """Retrieve value, returning None if expired."""
@@ -100,6 +115,28 @@ class MemoryStorage(Storage):
             else:
                 # Exact match
                 return [k for k in all_keys if k == pattern]
+
+    async def scan_keys(self, pattern: str = "*", cursor: int = 0, count: int = 10) -> tuple:
+        """
+        Scan keys matching pattern (Redis-compatible).
+        
+        Returns (cursor, keys) where cursor=0 means iteration complete.
+        """
+        all_keys = await self.keys(pattern)
+        # Simple pagination
+        start = cursor
+        end = min(cursor + count, len(all_keys))
+        next_cursor = 0 if end >= len(all_keys) else end
+        
+        return (next_cursor, all_keys[start:end])
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        """Set or update expiry on existing key."""
+        async with self._lock:
+            if key in self._data:
+                self._ttls[key] = time.time() + ttl
+                return True
+            return False
 
     async def increment(self, key: str, amount: int = 1) -> int:
         """Atomically increment counter."""

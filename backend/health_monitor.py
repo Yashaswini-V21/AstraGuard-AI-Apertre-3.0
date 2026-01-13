@@ -101,6 +101,7 @@ class HealthMonitor:
         self.start_time = datetime.utcnow()
 
         self._lock = Lock()
+        self._fallback_lock = Lock()
         self._retry_failures: List[datetime] = []
         self._fallback_cascade_log: List[Dict[str, Any]] = []
         self._cascade_log_max_size: int = 100  # Limit cascade log size to prevent memory leaks

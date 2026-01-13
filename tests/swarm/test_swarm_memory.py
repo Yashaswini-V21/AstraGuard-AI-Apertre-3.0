@@ -20,6 +20,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid5, NAMESPACE_DNS
 
 from astraguard.swarm.swarm_memory import (
     SwarmAdaptiveMemory,
@@ -39,8 +40,9 @@ from astraguard.swarm.compressor import StateCompressor
 def agent_id():
     """Create test agent ID."""
     return AgentID(
-        constellation_id="test-constellation",
+        constellation="astra-v3.0",
         satellite_serial="test-sat-001",
+        uuid=uuid5(NAMESPACE_DNS, "astra-v3.0:test-sat-001"),
     )
 
 
@@ -48,7 +50,7 @@ def agent_id():
 def peer_ids():
     """Create test peer IDs."""
     return [
-        AgentID(constellation_id="test-constellation", satellite_serial=f"test-sat-{i:03d}")
+        AgentID(constellation="astra-v3.0", satellite_serial=f"test-sat-{i:03d}", uuid=uuid5(NAMESPACE_DNS, f"astra-v3.0:test-sat-{i:03d}"))
         for i in range(2, 7)  # 5 peers
     ]
 

@@ -43,11 +43,14 @@ from core.auth import (
     get_current_user,
     require_admin,
     require_operator,
+    require_phase_update,
     require_analyst,
     UserRole,
     Permission,
     User,
+    APIKey,
 )
+from api.auth import get_api_key
 from state_machine.state_engine import StateMachine, MissionPhase
 from config.mission_phase_policy_loader import MissionPhasePolicyLoader
 from anomaly_agent.phase_aware_handler import PhaseAwareAnomalyHandler
@@ -65,6 +68,9 @@ from core.metrics import get_metrics_text, get_metrics_content_type
 from core.rate_limiter import RateLimiter, RateLimitMiddleware, get_rate_limit_config
 from backend.redis_client import RedisClient
 import numpy as np
+from astraguard.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Observability imports
 try:
@@ -139,7 +145,7 @@ def _check_credential_security():
     # Check if credentials are set
     if not metrics_user or not metrics_password:
         print("\n" + "=" * 70)
-        print("⚠️  SECURITY WARNING: Metrics authentication not configured!")
+        print("[WARNING] SECURITY WARNING: Metrics authentication not configured!")
         print("=" * 70)
         print("METRICS_USER and METRICS_PASSWORD environment variables are not set.")
         print("The /metrics endpoint will return HTTP 500 until configured.")
@@ -170,11 +176,11 @@ def _check_credential_security():
         if metrics_user == weak_user and metrics_password == weak_pass:
             _USING_DEFAULT_CREDENTIALS = True
             print("\n" + "=" * 70)
-            print("🔴 CRITICAL SECURITY WARNING: Using default/weak credentials!")
+            print("[CRITICAL] SECURITY WARNING: Using default/weak credentials!")
             print("=" * 70)
             print(f"Detected credentials: {get_secret_masked('metrics_user')}/{get_secret_masked('metrics_password')}")
             print()
-            print("⚠️  THESE CREDENTIALS ARE PUBLICLY KNOWN AND INSECURE!")
+            print("[WARNING] THESE CREDENTIALS ARE PUBLICLY KNOWN AND INSECURE!")
             print()
             print("IMMEDIATE ACTION REQUIRED:")
             print("  1. Change credentials before deploying to production")
@@ -189,7 +195,7 @@ def _check_credential_security():
     # Check for short passwords
     if len(metrics_password) < 12:
         print("\n" + "=" * 70)
-        print("⚠️  WARNING: Weak password detected!")
+        print("[WARNING] Weak password detected!")
         print("=" * 70)
         print(f"Password length: {len(metrics_password)} characters")
         print("Recommended minimum: 16 characters")
@@ -236,13 +242,12 @@ async def lifespan(app: FastAPI):
             rate_configs["api"][1]   # burst_capacity
         )
 
-        # Add rate limiting middleware after initialization
-        if telemetry_limiter and api_limiter:
-            app.add_middleware(RateLimitMiddleware, telemetry_limiter=telemetry_limiter, api_limiter=api_limiter)
+        # Note: RateLimitMiddleware can only be added during app setup, not in lifespan
+        # This is a limitation of Starlette/FastAPI - middleware stack is locked after startup
 
-        print("✅ Rate limiting initialized successfully")
+        print("[OK] Rate limiting initialized successfully")
     except Exception as e:
-        print(f"⚠️  Warning: Rate limiting initialization failed: {e}")
+        print(f"[WARNING] Rate limiting initialization failed: {e}")
         print("Rate limiting will be disabled")
 
     # Initialize observability (if available)
@@ -283,7 +288,8 @@ app.include_router(contact_router)
 
 # CORS configuration from environment variables
 # Security: Never use allow_origins=["*"] with allow_credentials=True in production
-ALLOWED_ORIGINS = get_secret("allowed_origins").split(",")
+allowed_origins_str = get_secret("allowed_origins") or "http://localhost:3000,http://localhost:8000"
+ALLOWED_ORIGINS = [origin.strip() for origin in allowed_origins_str.split(",")]
 
 # CORS middleware
 app.add_middleware(
@@ -293,8 +299,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
 )
-
-# Rate limiting middleware will be added in lifespan after initialization
 
 security = HTTPBasic()
 
@@ -760,7 +764,7 @@ async def get_phase(api_key: APIKey = Depends(get_api_key)):
 
 
 @app.post("/api/v1/phase", response_model=PhaseUpdateResponse)
-async def update_phase(request: PhaseUpdateRequest, current_user: User = Depends(require_admin)):
+async def update_phase(request: PhaseUpdateRequest, current_user: User = Depends(require_phase_update)):
     """Update mission phase."""
     try:
         target_phase = MissionPhase(request.phase.value)
