@@ -14,6 +14,7 @@ from astraguard.hil.scenarios.schema import (
 )
 from astraguard.hil.simulator.base import StubSatelliteSimulator
 from astraguard.hil.metrics.latency import LatencyCollector
+from astraguard.hil.metrics.accuracy import AccuracyCollector
 
 
 @dataclass
@@ -44,6 +45,7 @@ class ScenarioExecutor:
         self._fault_active: Dict[str, bool] = {}
         self._execution_log: List[Dict[str, Any]] = []
         self.latency_collector = LatencyCollector()
+        self.accuracy_collector = AccuracyCollector()
 
     async def provision_simulators(self) -> int:
         """
@@ -91,6 +93,11 @@ class ScenarioExecutor:
                         )
                         injected.append(f"{fault.type.value}@{fault.satellite}")
                         self._fault_active[fault.satellite] = True
+
+                        # Record ground truth: this fault is now active
+                        self.accuracy_collector.record_ground_truth(
+                            fault.satellite, now_s, fault.type.value, confidence=1.0
+                        )
                     except Exception as e:
                         print(f"[WARN] Fault injection failed: {e}")
 
@@ -189,6 +196,27 @@ class ScenarioExecutor:
                         sat_id, self._current_time_s, decision_time
                     )
 
+                    # Simulate agent fault classification
+                    # 90% accuracy detecting faults, 95% accuracy on nominal
+                    has_fault = sim.fault_type and self._fault_active.get(sat_id, False)
+                    if has_fault:
+                        # Agent should detect this fault (90% accuracy)
+                        is_correct = np.random.random() > 0.10
+                        predicted_fault = sim.fault_type if is_correct else None
+                        confidence = 0.9 if is_correct else np.random.uniform(0.3, 0.6)
+                    else:
+                        # Nominal case: 95% accuracy (5% false positives)
+                        is_correct = np.random.random() > 0.05
+                        predicted_fault = None if is_correct else np.random.choice(
+                            ["power_brownout", "comms_dropout", "thermal_runaway"],
+                            p=[0.3, 0.3, 0.4]
+                        )
+                        confidence = 0.95 if is_correct else np.random.uniform(0.4, 0.7)
+
+                    self.accuracy_collector.record_agent_classification(
+                        sat_id, self._current_time_s, predicted_fault, confidence, is_correct
+                    )
+
                 except Exception:
                     # Stub might not generate full telemetry
                     all_telemetry[sat_id] = None
@@ -241,6 +269,8 @@ class ScenarioExecutor:
             "execution_log": self._execution_log,
             "latency_stats": self.latency_collector.get_stats(),
             "latency_summary": self.latency_collector.get_summary(),
+            "accuracy_stats": self.accuracy_collector.get_accuracy_stats(),
+            "accuracy_summary": self.accuracy_collector.get_summary(),
         }
 
 
