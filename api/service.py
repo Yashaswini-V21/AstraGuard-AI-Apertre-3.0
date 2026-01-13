@@ -47,6 +47,7 @@ from core.auth import (
     UserRole,
     Permission,
     User,
+    APIKey,
 )
 from api.auth import get_api_key
 from state_machine.state_engine import StateMachine, MissionPhase
