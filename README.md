@@ -50,42 +50,6 @@
 
 ## _Want to see your avatar here? [Make your first contribution today!](CONTRIBUTING.md)_
 
----
-
-## 📋 Table of Contents
-
-- [🚀 About the Project](#-about-the-project)
-  - [What is AstraGuard AI?](#what-is-astraguard-ai)
-  - [Why AstraGuard AI?](#why-astraguard-ai)
-  - [Target Audience](#target-audience)
-- [🏗️ System Architecture](#️-system-architecture)
-  - [Dual-Engine Design](#dual-engine-design)
-  - [Data Flow](#data-flow)
-- [✨ Key Features](#-key-features)
-  - [Core Capabilities](#core-capabilities)
-  - [Mission-Phase Aware Fault Response](#-mission-phase-aware-fault-response)
-  - [Error Handling & Resilience](#️-centralized-error-handling--graceful-degradation)
-  - [REST API Integration](#-rest-api-for-external-integration)
-- [🎯 Project Goals (Apertre-3.0)](#-project-goals-apertre-30)
-- [🤝 Project Admin Commitment](#-project-admin-commitment)
-- [🧠 Mentorship & Support](#-mentorship--support)
-- [🛠️ Tech Stack](#️-tech-stack)
-- [📂 Project Structure](#-project-structure)
-- [🚀 Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation Steps](#installation-steps)
-  - [Available Commands](#available-commands)
-- [🌐 API Documentation](#-api-documentation)
-  - [Quick Start](#quick-start-example)
-  - [Endpoints Reference](#endpoints-reference)
-  - [Usage Examples](#detailed-usage-examples)
-- [👥 Contributing](#-contributing)
-  - [Contributor Roles](#contributor-roles-needed)
-  - [How to Contribute](#how-to-contribute)
-- [🛠️ Troubleshooting](#️-troubleshooting)
-- [📚 Documentation](#-documentation)
-- [📞 Community](#-community--support)
-- [📄 License](#-license)
 
 ---
 
