@@ -1,6 +1,7 @@
 """Persistent metrics storage."""
 
 import json
+import asyncio
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
@@ -23,9 +24,9 @@ class MetricsStorage:
         self.metrics_dir = Path(results_dir) / run_id
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_latency_stats(self, collector: LatencyCollector) -> Dict[str, str]:
+    async def save_latency_stats(self, collector: LatencyCollector) -> Dict[str, str]:
         """
-        Save aggregated and raw latency metrics.
+        Save aggregated and raw latency metrics asynchronously.
 
         Args:
             collector: LatencyCollector with measurements
@@ -47,27 +48,28 @@ class MetricsStorage:
         }
 
         summary_path = self.metrics_dir / "latency_summary.json"
-        summary_path.write_text(json.dumps(summary_dict, indent=2, default=str))
+        await asyncio.to_thread(summary_path.write_text, json.dumps(summary_dict, indent=2, default=str))
 
         # Raw CSV for external analysis
         csv_path = self.metrics_dir / "latency_raw.csv"
-        collector.export_csv(str(csv_path))
+        await asyncio.to_thread(collector.export_csv, str(csv_path))
 
         return {"summary": str(summary_path), "raw": str(csv_path)}
 
-    def get_run_metrics(self) -> Dict[str, Any]:
+    async def get_run_metrics(self) -> Dict[str, Any]:
         """
-        Load metrics from this run.
+        Load metrics from this run asynchronously.
 
         Returns:
             Parsed metrics dictionary or None if not found
         """
         summary_path = self.metrics_dir / "latency_summary.json"
-        if not summary_path.exists():
+        if not await asyncio.to_thread(summary_path.exists):
             return None
 
         try:
-            return json.loads(summary_path.read_text())
+            content = await asyncio.to_thread(summary_path.read_text)
+            return json.loads(content)
         except Exception as e:
             print(f"[ERROR] Failed to load metrics from {summary_path}: {e}")
             return None
@@ -121,11 +123,11 @@ class MetricsStorage:
         return comparison
 
     @staticmethod
-    def get_recent_runs(
+    async def get_recent_runs(
         results_dir: str = "astraguard/hil/results", limit: int = 10
     ) -> list:
         """
-        Get recent metric runs.
+        Get recent metric runs asynchronously.
 
         Args:
             results_dir: Base results directory
@@ -135,13 +137,13 @@ class MetricsStorage:
             List of recent run IDs
         """
         results_path = Path(results_dir)
-        if not results_path.exists():
+        if not await asyncio.to_thread(results_path.exists):
             return []
 
         # Find directories with latency metrics
         runs = []
-        for run_dir in sorted(results_path.iterdir(), reverse=True):
-            if run_dir.is_dir() and (run_dir / "latency_summary.json").exists():
+        for run_dir in await asyncio.to_thread(lambda: sorted(results_path.iterdir(), reverse=True)):
+            if run_dir.is_dir() and await asyncio.to_thread((run_dir / "latency_summary.json").exists):
                 runs.append(run_dir.name)
                 if len(runs) >= limit:
                     break
