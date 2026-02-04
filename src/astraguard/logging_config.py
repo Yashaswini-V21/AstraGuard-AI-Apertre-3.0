@@ -25,50 +25,69 @@ def setup_json_logging(
     """
     Setup JSON structured logging for production environments
     Compatible with Azure Monitor, ELK Stack, Splunk, etc.
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         service_name: Name of the service
         environment: Environment name (development, staging, production)
     """
-    
-    # Configure structlog for structured output
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.ExceptionRenderer(),
-            structlog.processors.JSONRenderer()
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level)),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-    
-    # Configure root logger with JSON handler
-    json_handler = logging.StreamHandler(sys.stdout)
-    json_formatter = jsonlogger.JsonFormatter(
-        fmt='%(timestamp)s %(level)s %(name)s %(message)s',
-        timestamp=True
-    )
-    json_handler.setFormatter(json_formatter)
-    
-    # Configure Python logging
-    root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_level))
-    root_logger.handlers.clear()
-    root_logger.addHandler(json_handler)
-    
-    # Add global context
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(
-        service=service_name,
-        environment=environment,
-        version=get_secret("app_version", "1.0.0")
-    )
+    try:
+        # Validate log_level
+        if not hasattr(logging, log_level.upper()):
+            raise ValueError(f"Invalid log level: {log_level}")
+
+        # Configure structlog for structured output
+        structlog.configure(
+            processors=[
+                structlog.contextvars.merge_contextvars,
+                structlog.processors.add_log_level,
+                structlog.processors.TimeStamper(fmt="iso"),
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.ExceptionRenderer(),
+                structlog.processors.JSONRenderer()
+            ],
+            wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level)),
+            context_class=dict,
+            logger_factory=structlog.PrintLoggerFactory(),
+            cache_logger_on_first_use=True,
+        )
+
+        # Configure root logger with JSON handler
+        json_handler = logging.StreamHandler(sys.stdout)
+        json_formatter = jsonlogger.JsonFormatter(
+            fmt='%(timestamp)s %(level)s %(name)s %(message)s',
+            timestamp=True
+        )
+        json_handler.setFormatter(json_formatter)
+
+        # Configure Python logging
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, log_level))
+        root_logger.handlers.clear()
+        root_logger.addHandler(json_handler)
+
+        # Add global context with safe secret retrieval
+        try:
+            app_version = get_secret("app_version", "1.0.0")
+        except (KeyError, ValueError, Exception) as e:
+            app_version = "1.0.0"
+            print(f"Warning: Failed to retrieve app_version secret: {e}", file=sys.stderr)
+
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            service=service_name,
+            environment=environment,
+            version=app_version
+        )
+
+    except (AttributeError, ImportError, ValueError) as e:
+        # Fallback to basic logging if JSON setup fails
+        print(f"Warning: JSON logging setup failed ({type(e).__name__}): {e}. Falling back to basic logging.", file=sys.stderr)
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    except Exception as e:
+        # Catch any other unexpected exceptions
+        print(f"Error: Unexpected error during logging setup ({type(e).__name__}): {e}. Using default logging.", file=sys.stderr)
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 
 def get_logger(name: str = __name__) -> structlog.BoundLogger:
@@ -318,7 +337,12 @@ def log_performance_metric(
 
 def set_log_level(level: str):
     """Change logging level at runtime"""
-    logging.getLogger().setLevel(getattr(logging, level))
+    try:
+        if not hasattr(logging, level.upper()):
+            raise ValueError(f"Invalid log level: {level}")
+        logging.getLogger().setLevel(getattr(logging, level))
+    except (AttributeError, ValueError) as e:
+        print(f"Warning: Failed to set log level to '{level}': {e}. Log level unchanged.", file=sys.stderr)
 
 
 def clear_context():
@@ -340,6 +364,11 @@ def unbind_context(*keys):
 # INITIALIZATION
 # ============================================================================
 
-# Initialize on import
-if get_secret("enable_json_logging", False):
-    setup_json_logging()
+# Initialize on import with error handling
+try:
+    enable_json = get_secret("enable_json_logging", False)
+    if enable_json:
+        setup_json_logging()
+except (KeyError, ValueError, Exception) as e:
+    print(f"Warning: Failed to initialize JSON logging on import: {e}. Using default logging.", file=sys.stderr)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
