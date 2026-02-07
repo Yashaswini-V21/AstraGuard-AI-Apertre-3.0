@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from fastapi.responses import JSONResponse
 
 # Rate limiting
@@ -67,7 +67,8 @@ class ContactSubmission(BaseModel):
     message: str = Field(..., min_length=10, max_length=5000)
     website: Optional[str] = Field(None, description="Honeypot field")
     
-    @validator('name', 'subject', 'message')
+    @field_validator('name', 'subject', 'message')
+    @classmethod
     def sanitize_text(cls, v):
         """Remove dangerous characters to prevent XSS"""
         if v:
@@ -75,7 +76,8 @@ class ContactSubmission(BaseModel):
             v = re.sub(r'[<>"\'&]', '', v)
         return v
     
-    @validator('email')
+    @field_validator('email')
+    @classmethod
     def normalize_email(cls, v):
         """Normalize email to lowercase"""
         return v.lower() if v else v
@@ -358,7 +360,7 @@ async def submit_contact_form(
 async def get_submissions(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    status_filter: Optional[str] = Query(None, regex="^(pending|resolved|spam)$"),
+    status_filter: Optional[str] = Query(None, pattern="^(pending|resolved|spam)$"),
     current_user = Depends(get_admin_user)
 ):
     """
@@ -427,7 +429,7 @@ async def get_submissions(
 @router.patch("/submissions/{submission_id}/status")
 async def update_submission_status(
     submission_id: int,
-    status: str = Query(..., regex="^(pending|resolved|spam)$"),
+    status: str = Query(..., pattern="^(pending|resolved|spam)$"),
     current_user = Depends(get_admin_user)
 ):
     """
