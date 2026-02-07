@@ -9,7 +9,7 @@ import json
 import sys
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional, Type
 import structlog
 from pythonjsonlogger import jsonlogger
 from core.secrets import get_secret
