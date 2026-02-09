@@ -15,6 +15,9 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from fastapi.responses import JSONResponse
+import aiosqlite
+import aiofiles
+import asyncio
 
 # Rate limiting
 try:
@@ -220,7 +223,7 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def save_submission(
+async def save_submission(
     submission: ContactSubmission,
     ip_address: str,
     user_agent: str
@@ -263,7 +266,7 @@ def save_submission(
     return submission_id
 
 
-def log_notification(submission: ContactSubmission, submission_id: int):
+async def log_notification(submission: ContactSubmission, submission_id: int):
     """Log notification to file (fallback when email is not configured)"""
     DATA_DIR.mkdir(exist_ok=True)
     
@@ -276,11 +279,11 @@ def log_notification(submission: ContactSubmission, submission_id: int):
         "message": submission.message[:100] + "..." if len(submission.message) > 100 else submission.message
     }
     
-    with open(NOTIFICATION_LOG, "a") as f:
-        f.write(json.dumps(log_entry) + "\n")
+    async with aiofiles.open(NOTIFICATION_LOG, "a") as f:
+        await f.write(json.dumps(log_entry) + "\n")
 
 
-def send_email_notification(submission: ContactSubmission, submission_id: int):
+async def send_email_notification(submission: ContactSubmission, submission_id: int):
     """Send email notification (placeholder for SendGrid integration)"""
     # TODO: Implement SendGrid integration when SENDGRID_API_KEY is set
     if SENDGRID_API_KEY:
@@ -288,7 +291,7 @@ def send_email_notification(submission: ContactSubmission, submission_id: int):
             # Example SendGrid implementation:
             # from sendgrid import SendGridAPIClient
             # from sendgrid.helpers.mail import Mail
-            # 
+            #
             # message = Mail(
             #     from_email='noreply@astraguard.ai',
             #     to_emails=CONTACT_EMAIL,
@@ -307,10 +310,10 @@ def send_email_notification(submission: ContactSubmission, submission_id: int):
             pass
         except Exception as e:
             print(f"Email sending failed: {e}")
-            log_notification(submission, submission_id)
+            await log_notification(submission, submission_id)
     else:
         # Fallback to file logging
-        log_notification(submission, submission_id)
+        await log_notification(submission, submission_id)
 
 
 # API Endpoints
