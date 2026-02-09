@@ -168,9 +168,9 @@ class TestErrorHandling:
         # Verify the module loaded successfully
         assert index_module.app is not None
     
-    def test_import_error_propagation(self):
-        """Test that ImportError is properly propagated."""
-        # This test verifies the error handling code exists
+    def test_app_imports_successfully(self):
+        """Test that the app object can be imported successfully."""
+        # This test verifies that the index module exports a usable app
         from api import index as index_module
         
         # Verify the module loaded successfully
