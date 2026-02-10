@@ -6,9 +6,10 @@ FastAPI-based REST API for telemetry ingestion and anomaly detection.
 
 import os
 import time
+from typing import List, Optional, Any, Union
 from datetime import datetime, timedelta
-from typing import List
 from collections import deque
+from asyncio import Lock
 from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -102,6 +103,11 @@ predictive_engine = None
 latest_telemetry_data = None # Store latest telemetry for dashboard
 anomaly_history = deque(maxlen=MAX_ANOMALY_HISTORY_SIZE)  # Bounded deque prevents memory exhaustion
 active_faults = {} # Stores active chaos experiments: {fault_type: expiration_timestamp}
+
+# Locks for global state protection
+telemetry_lock = Lock()
+anomaly_lock = Lock()
+faults_lock = Lock()
 start_time = time.time()
 
 # Rate limiting
@@ -362,29 +368,32 @@ def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
 # Helper Functions
 # ============================================================================
 
-def check_chaos_injection(fault_type: str) -> bool:
+async def check_chaos_injection(fault_type: str) -> bool:
     """Check if a chaos fault is currently active."""
-    if fault_type in active_faults:
-        expiration = active_faults[fault_type]
-        if time.time() > expiration:
-            del active_faults[fault_type]
-            return False
-        return True
-    return False
+    async with faults_lock:
+        if fault_type in active_faults:
+            expiration = active_faults[fault_type]
+            if time.time() > expiration:
+                del active_faults[fault_type]
+                return False
+            return True
+        return False
 
 
-def cleanup_expired_faults():
+async def cleanup_expired_faults():
     """Clean up expired chaos faults."""
     current_time = time.time()
-    expired = [k for k, v in active_faults.items() if current_time > v]
-    for k in expired:
-        del active_faults[k]
+    async with faults_lock:
+        expired = [k for k, v in active_faults.items() if current_time > v]
+        for k in expired:
+            del active_faults[k]
 
 
-def inject_chaos_fault(fault_type: str, duration_seconds: int) -> dict:
+async def inject_chaos_fault(fault_type: str, duration_seconds: int) -> dict:
     """Inject a chaos fault for the specified duration."""
     expiration = time.time() + duration_seconds
-    active_faults[fault_type] = expiration
+    async with faults_lock:
+        active_faults[fault_type] = expiration
     return {
         "status": "injected",
         "fault": fault_type,
@@ -404,7 +413,7 @@ def create_response(status: str, data: dict = None, **kwargs) -> dict:
     return response
 
 
-def process_telemetry_batch(telemetry_list: list) -> dict:
+async def process_telemetry_batch(telemetry_list: list) -> dict:
     """Process a batch of telemetry data and return aggregated results."""
     processed_count = 0
     anomalies_detected = 0
@@ -427,7 +436,8 @@ def process_telemetry_batch(telemetry_list: list) -> dict:
                     severity_score=anomaly_score,
                     context=telemetry
                 )
-                anomaly_history.append(anomaly)
+                async with anomaly_lock:
+                    anomaly_history.append(anomaly)
 
         except Exception as e:
             logger.error(f"Failed to process telemetry: {e}")
@@ -595,11 +605,12 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
     }
 
     # Update global latest telemetry
-    global latest_telemetry_data
-    latest_telemetry_data = {
-        "data": data,
-        "timestamp": datetime.now()
-    }
+    async with telemetry_lock:
+        global latest_telemetry_data
+        latest_telemetry_data = {
+            "data": data,
+            "timestamp": datetime.now()
+        }
 
     # Detect anomaly (uses heuristic if model not loaded)
     is_anomaly, anomaly_score = await detect_anomaly(data)
@@ -674,7 +685,8 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
         )
 
         # Store in history
-        anomaly_history.append(response)
+        async with anomaly_lock:
+            anomaly_history.append(response)
 
         # Store in memory with embedding (simple feature vector)
         try:
@@ -734,9 +746,10 @@ async def _process_telemetry(telemetry: TelemetryInput, request_start: float) ->
 @app.get("/api/v1/telemetry/latest")
 async def get_latest_telemetry(api_key: APIKey = Depends(get_api_key)):
     """Get the most recent telemetry data point."""
-    if latest_telemetry_data is None:
-        return create_response("no_data", {"data": None, "message": "No telemetry received yet"})
-    return create_response("success", latest_telemetry_data)
+    async with telemetry_lock:
+        if latest_telemetry_data is None:
+            raise HTTPException(status_code=404, detail="No telemetry data available")
+        return create_response("success", latest_telemetry_data.copy())
 
 
 @app.post("/api/v1/telemetry/batch", response_model=BatchAnomalyResponse)
@@ -868,7 +881,8 @@ async def get_anomaly_history(
 ):
     """Retrieve anomaly history with optional filtering."""
     # Convert deque to list for filtering operations
-    filtered = list(anomaly_history)
+    async with anomaly_lock:
+        filtered = list(anomaly_history)
 
     # Filter by time range
     if start_time:
