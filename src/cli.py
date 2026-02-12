@@ -8,7 +8,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict, NoReturn
 
 # Enable UTF-8 output on Windows
 if sys.platform == "win32":
@@ -205,6 +205,18 @@ def run_dashboard() -> None:
 
 def run_simulation() -> None:
     subprocess.run([sys.executable, os.path.join("simulation", "attitude_3d.py")])
+
+def run_classifier() -> None:
+    """Run fault classifier tests."""
+    try:
+        from classifier.fault_classifier import run_tests
+        run_tests()
+    except ImportError:
+        print("❌ Fault classifier not available. Missing dependencies.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Classifier failed: {e}")
+        sys.exit(1)
 
 
 def run_report(args: argparse.Namespace) -> None:
