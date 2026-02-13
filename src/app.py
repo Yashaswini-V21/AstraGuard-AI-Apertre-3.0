@@ -3,104 +3,154 @@ AstraGuard AI - Main FastAPI Application Entry Point.
 
 This module serves as the primary entry point for production deployments using
 Uvicorn. It imports the initialized `app` from `api.service` and configures
-the server settings (host, port) for standalone execution.
+the server settings (host, port, workers) for standalone execution.
 """
 
-import sys
 import os
+import sys
 import signal
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger: logging.Logger = logging.getLogger(__name__)
 
-# Import application with error handling
 try:
     from api.service import app
 except ImportError as e:
-    logger.critical(
-        f"Failed to import application - missing dependencies: {e}",
-        exc_info=True
-    )
+    logger.critical("Failed to import application – missing dependencies: %s", e, exc_info=True)
     logger.info("Ensure all dependencies are installed: pip install -r requirements.txt")
     sys.exit(1)
 except Exception as e:
-    logger.critical(
-        f"Application initialization failed: {e}",
-        exc_info=True
-    )
+    logger.critical("Application initialization failed: %s", e, exc_info=True)
     sys.exit(1)
 
-def signal_handler(sig, frame):
-    """Handle shutdown signals gracefully."""
-    logger.info(f"Received signal {sig}, shutting down gracefully...")
+VALID_LOG_LEVELS: frozenset[str] = frozenset(
+    {"critical", "error", "warning", "info", "debug", "trace"}
+)
+
+_EADDRINUSE: frozenset[int] = frozenset({48, 98})
+_EACCES: int = 13
+
+def _parse_port(value: str) -> int:
+    """Parse and validate a port number string.
+
+    Raises:
+        SystemExit: if the value is not a valid port number.
+    """
+    try:
+        port = int(value)
+    except ValueError:
+        logger.error("APP_PORT must be an integer, got: %r", value)
+        sys.exit(1)
+
+    if not (1 <= port <= 65535):
+        logger.error("APP_PORT must be between 1 and 65535, got: %d", port)
+        sys.exit(1)
+
+    return port
+
+def _parse_workers(value: str) -> int:
+    """Parse and validate the worker-count string.
+
+    Raises:
+        SystemExit: if the value is not a positive integer.
+    """
+    try:
+        workers = int(value)
+    except ValueError:
+        logger.error("APP_WORKERS must be an integer, got: %r", value)
+        sys.exit(1)
+
+    if workers < 1:
+        logger.error("APP_WORKERS must be >= 1, got: %d", workers)
+        sys.exit(1)
+
+    return workers
+
+def _parse_log_level(value: str) -> str:
+    """Normalise and validate a log-level string.
+
+    Falls back to "info" with a warning rather than hard-exiting, so a
+    misconfigured LOG_LEVEL never prevents the server from starting.
+    """
+    normalised = value.strip().lower()
+    if normalised not in VALID_LOG_LEVELS:
+        logger.warning(
+            "Invalid LOG_LEVEL %r – falling back to 'info'. "
+            "Valid levels: %s",
+            value,
+            ", ".join(sorted(VALID_LOG_LEVELS)),
+        )
+        return "info"
+    return normalised
+
+def signal_handler(sig: int, _frame: object) -> None:
+    """Handle SIGINT / SIGTERM for a clean shutdown.
+
+    Exposed as a public name so it can be referenced or patched by tests
+    and external tooling.  Registered internally via :func:`main`.
+    """
+    logger.info("Received signal %d – shutting down gracefully.", sig)
     sys.exit(0)
 
-if __name__ == "__main__":
-    # Register signal handlers for graceful shutdown
+def main() -> None:
+    """Configure and start the Uvicorn server."""
+    host = os.environ.get("APP_HOST", "0.0.0.0")
+    port = _parse_port(os.environ.get("APP_PORT", "8002"))
+    workers = _parse_workers(os.environ.get("APP_WORKERS", "1"))
+    log_level = _parse_log_level(os.environ.get("LOG_LEVEL", "info"))
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
+    logger.info(
+        "Starting AstraGuard AI on %s:%d (workers=%d, log_level=%s)",
+        host, port, workers, log_level,
+    )
+
     try:
         import uvicorn
-        
-        # Configuration from environment variables with validation
-        host = os.getenv("APP_HOST", "0.0.0.0")
-        port_str = os.getenv("APP_PORT", "8002")
-        log_level = os.getenv("LOG_LEVEL", "info").lower()
-        
-        # Validate port
-        try:
-            port = int(port_str)
-            if not (1 <= port <= 65535):
-                raise ValueError(f"Port must be between 1-65535, got {port}")
-        except ValueError as e:
-            logger.error(f"Invalid APP_PORT configuration: {e}")
-            sys.exit(1)
-        
-        # Validate log level
-        valid_log_levels = ["critical", "error", "warning", "info", "debug"]
-        if log_level not in valid_log_levels:
-            logger.warning(
-                f"Invalid LOG_LEVEL '{log_level}', using 'info'. "
-                f"Valid levels: {', '.join(valid_log_levels)}"
-            )
-            log_level = "info"
-        
-        logger.info(f"Starting AstraGuard AI server on {host}:{port}")
-        logger.info(f"Log level: {log_level}")
-        
+    except ImportError:
+        logger.critical("uvicorn is not installed.  Run: pip install uvicorn[standard]")
+        sys.exit(1)
+
+    try:
         uvicorn.run(
-            app,
+            "api.service:app" if workers > 1 else app,
             host=host,
             port=port,
-            log_level=log_level
+            workers=workers if workers > 1 else None,
+            log_level=log_level,
+            access_log=True,
+            server_header=False,
+            date_header=True,
         )
-        
-    except ImportError:
-        logger.critical(
-            "uvicorn not installed. Install with: pip install uvicorn"
-        )
-        sys.exit(1)
     except OSError as e:
-        if e.errno in (48, 98):  # EADDRINUSE - Address already in use
+        if e.errno in _EADDRINUSE:
             logger.error(
-                f"Port {port} already in use. "
-                f"Set APP_PORT environment variable to use a different port."
+                "Port %d is already in use.  "
+                "Set APP_PORT to a different port and retry.",
+                port,
             )
-        elif e.errno == 13:  # EACCES - Permission denied
+        elif e.errno == _EACCES:
             logger.error(
-                f"Permission denied to bind to {host}:{port}. "
-                f"Ports below 1024 require root privileges."
+                "Permission denied binding to %s:%d.  "
+                "Ports below 1024 require elevated privileges.",
+                host, port,
             )
         else:
-            logger.error(f"Failed to start server: {e}", exc_info=True)
+            logger.error("Failed to start server: %s", e, exc_info=True)
         sys.exit(1)
     except KeyboardInterrupt:
-        logger.info("Server shutdown requested by user")
+        logger.info("Server shutdown requested by user.")
         sys.exit(0)
-    except Exception as e:
-        logger.critical(
-            f"Unexpected server error: {e}",
-            exc_info=True
-        )
+    except Exception as e:  # noqa: BLE001
+        logger.critical("Unexpected server error: %s", e, exc_info=True)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
