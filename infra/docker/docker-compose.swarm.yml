@@ -72,10 +72,10 @@ services:
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     
     restart: unless-stopped
 
@@ -127,10 +127,10 @@ services:
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     
     restart: unless-stopped
 
@@ -179,10 +179,10 @@ services:
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     
     restart: unless-stopped
 
@@ -231,10 +231,10 @@ services:
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     
     restart: unless-stopped
 
@@ -283,10 +283,10 @@ services:
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     
     restart: unless-stopped
 
