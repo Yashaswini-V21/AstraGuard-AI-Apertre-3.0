@@ -7,6 +7,10 @@ from enum import Enum
 import numpy as np
 from collections import defaultdict
 import bisect
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,7 @@ class AccuracyCollector:
             key=lambda e: e.timestamp_s
         )
 
+
     def record_agent_classification(
         self,
         sat_id: str,
@@ -155,12 +160,10 @@ class AccuracyCollector:
         )
         self.agent_classifications.append(classification)
 
+
     def get_accuracy_stats(self) -> Dict[str, Any]:
         """
-        Calculate accuracy statistics.
-
-        Returns:
-            Dict with overall accuracy, per-fault-type precision/recall, confidence
+        Calculate comprehensive classification accuracy statistics.
         """
         if not self.agent_classifications:
             return {
@@ -172,11 +175,12 @@ class AccuracyCollector:
                 "confidence_std": 0.0,
             }
 
-        total = len(self.agent_classifications)
-        correct = sum(1 for c in self.agent_classifications if c.is_correct)
+        try:
+            total = len(self.agent_classifications)
+            correct = sum(1 for c in self.agent_classifications if c.is_correct)
 
-        # Per-fault-type breakdown
-        by_fault = self._calculate_per_fault_stats()
+            # Per-fault-type breakdown
+            by_fault = self._calculate_per_fault_stats()
 
         # Confidence statistics with error handling
         confidences = [c.confidence for c in self.agent_classifications]
@@ -215,65 +219,57 @@ class AccuracyCollector:
             confidence_mean = 0.0
             confidence_std = 0.0
 
-        return {
-            "total_classifications": total,
-            "correct_classifications": correct,
-            "overall_accuracy": correct / total if total > 0 else 0.0,
-            "by_fault_type": by_fault,
-            "confidence_mean": confidence_mean,
-            "confidence_std": confidence_std,
-        }
+
+            return {
+                "total_classifications": total,
+                "correct_classifications": correct,
+                "overall_accuracy": correct / total if total > 0 else 0.0,
+                "by_fault_type": by_fault,
+                "confidence_mean": confidence_mean,
+                "confidence_std": confidence_std,
+            }
+        except (TypeError, ValueError, ZeroDivisionError) as e:
+            logger.exception("Error while computing accuracy statistics")
+            raise
 
     def _calculate_per_fault_stats(self) -> Dict[str, Dict[str, Any]]:
         """
         Calculate precision, recall, F1 per fault type.
-
-        Returns:
-            Dict mapping fault types to metrics
         """
-        # Collect all possible fault types
-        fault_types = set()
-        for c in self.agent_classifications:
-            if c.predicted_fault:
-                fault_types.add(c.predicted_fault)
-        for e in self.ground_truth_events:
-            if e.expected_fault_type:
-                fault_types.add(e.expected_fault_type)
+        try:
+            fault_types = set()
+            for c in self.agent_classifications:
+                if c.predicted_fault:
+                    fault_types.add(c.predicted_fault)
+            for e in self.ground_truth_events:
+                if e.expected_fault_type:
+                    fault_types.add(e.expected_fault_type)
 
-        stats = {}
+            stats = {}
 
-        for fault_type in sorted(fault_types):
-            # True positives: correctly identified
-            tp = sum(
-                1
-                for c in self.agent_classifications
-                if c.predicted_fault == fault_type and c.is_correct
-            )
+            for fault_type in sorted(fault_types):
+                tp = sum(
+                    1
+                    for c in self.agent_classifications
+                    if c.predicted_fault == fault_type and c.is_correct
+                )
 
-            # False positives: incorrectly identified
-            fp = sum(
-                1
-                for c in self.agent_classifications
-                if c.predicted_fault == fault_type and not c.is_correct
-            )
+                fp = sum(
+                    1
+                    for c in self.agent_classifications
+                    if c.predicted_fault == fault_type and not c.is_correct
+                )
 
-            # False negatives: should have detected but didn't
-            fn = sum(
-                1
-                for c in self.agent_classifications
-                if c.predicted_fault != fault_type
-                and c.is_correct is False
-                and self._find_ground_truth_fault(c.satellite_id, c.timestamp_s) == fault_type
-            )
-
-            # Calculate metrics
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            f1 = (
-                2 * (precision * recall) / (precision + recall)
-                if (precision + recall) > 0
-                else 0.0
-            )
+                fn = sum(
+                    1
+                    for c in self.agent_classifications
+                    if c.predicted_fault != fault_type
+                    and c.is_correct is False
+                    and self._find_ground_truth_fault(
+                        c.satellite_id, c.timestamp_s
+                    )
+                    == fault_type
+                )
 
             predictions = [
                 c for c in self.agent_classifications if c.predicted_fault == fault_type
@@ -317,7 +313,33 @@ class AccuracyCollector:
                 "avg_confidence": avg_confidence,
             }
 
-        return stats
+
+                predictions = [
+                    c
+                    for c in self.agent_classifications
+                    if c.predicted_fault == fault_type
+                ]
+
+                stats[fault_type] = {
+                    "precision": precision,
+                    "recall": recall,
+                    "f1": f1,
+                    "true_positives": tp,
+                    "false_positives": fp,
+                    "false_negatives": fn,
+                    "total_predictions": len(predictions),
+                    "correct_predictions": tp,
+                    "avg_confidence": (
+                        float(np.mean([c.confidence for c in predictions]))
+                        if predictions
+                        else 0.0
+                    ),
+                }
+
+            return stats
+        except (TypeError, ValueError, ZeroDivisionError) as e:
+            logger.exception("Error while calculating per-fault statistics")
+            raise
 
     def _find_ground_truth_fault(self, sat_id: str, timestamp_s: float) -> Optional[str]:
         """
@@ -363,19 +385,9 @@ class AccuracyCollector:
     def get_stats_by_satellite(self) -> Dict[str, Dict[str, Any]]:
         """
         Calculate accuracy statistics per satellite.
-
-        Returns:
-            Dict mapping satellite ID to accuracy stats
         """
-        by_satellite = defaultdict(list)
-
-        for c in self.agent_classifications:
-            by_satellite[c.satellite_id].append(c)
-
-        stats = {}
-        for sat_id, classifications in by_satellite.items():
-            total = len(classifications)
-            correct = sum(1 for c in classifications if c.is_correct)
+        try:
+            by_satellite = defaultdict(list)
 
             # Calculate average confidence with error handling
             try:
@@ -411,26 +423,28 @@ class AccuracyCollector:
 
         return stats
 
+
     def get_confusion_matrix(self) -> Dict[str, Dict[str, int]]:
         """
         Build confusion matrix of predicted vs actual fault types.
-
-        Returns:
-            Nested dict: predicted[actual] = count
         """
         confusion = defaultdict(lambda: defaultdict(int))
 
-        # Map classifications to ground truth
-        for c in self.agent_classifications:
-            # Find matching ground truth using binary search
-            actual_fault = self._find_ground_truth_fault(c.satellite_id, c.timestamp_s)
+        try:
+            for c in self.agent_classifications:
+                actual_fault = self._find_ground_truth_fault(
+                    c.satellite_id, c.timestamp_s
+                )
 
-            predicted = c.predicted_fault or "nominal"
-            actual = actual_fault or "nominal"
+                predicted = c.predicted_fault or "nominal"
+                actual = actual_fault or "nominal"
 
-            confusion[predicted][actual] += 1
+                confusion[predicted][actual] += 1
 
-        return dict(confusion)
+            return dict(confusion)
+        except (TypeError, ValueError) as e:
+            logger.exception("Failed while building confusion matrix")
+            raise
 
     def export_csv(self, filename: str) -> None:
         """
@@ -495,6 +509,7 @@ class AccuracyCollector:
 
                     for c in self.agent_classifications:
                         writer.writerow({
+
                             "timestamp_s": c.timestamp_s,
                             "satellite_id": c.satellite_id,
                             "predicted_fault": c.predicted_fault or "nominal",
@@ -557,17 +572,46 @@ class AccuracyCollector:
     def get_summary(self) -> Dict[str, Any]:
         """
         Get comprehensive accuracy summary.
-
-        Returns:
-            Complete summary dict
         """
-        return {
-            "total_events": len(self.ground_truth_events),
-            "total_classifications": len(self.agent_classifications),
-            "stats": self.get_accuracy_stats(),
-            "stats_by_satellite": self.get_stats_by_satellite(),
-            "confusion_matrix": self.get_confusion_matrix(),
-        }
+        try:
+            return {
+                "total_events": len(self.ground_truth_events),
+                "total_classifications": len(self.agent_classifications),
+                "stats": self.get_accuracy_stats(),
+                "stats_by_satellite": self.get_stats_by_satellite(),
+                "confusion_matrix": self.get_confusion_matrix(),
+            }
+        except (TypeError, ValueError) as e:
+            logger.exception("Failed to generate summary")
+            raise
+
+    def _find_ground_truth_fault(
+        self, sat_id: str, timestamp_s: float
+    ) -> Optional[str]:
+        """
+        Find the ground truth fault type for a satellite at a given timestamp.
+        """
+        if sat_id not in self._ground_truth_by_sat:
+            return None
+
+        events = self._ground_truth_by_sat[sat_id]
+        if not events:
+            return None
+
+        try:
+            idx = bisect.bisect_right(
+                events, timestamp_s, key=lambda e: e.timestamp_s
+            ) - 1
+
+            if idx < 0:
+                return None
+
+            return events[idx].expected_fault_type
+        except (TypeError, ValueError) as e:
+            logger.exception(
+                "Binary search failed while finding ground truth fault"
+            )
+            raise
 
     def reset(self) -> None:
         """Clear all data."""
