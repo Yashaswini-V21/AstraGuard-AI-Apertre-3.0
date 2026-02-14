@@ -3,6 +3,8 @@ Contact Form API
 
 Handles contact form submissions with validation, rate limiting, spam protection,
 and persistence. Includes admin endpoint for reviewing submissions.
+
+Optimized for async I/O performance using aiosqlite and connection pooling.
 """
 
 import os
