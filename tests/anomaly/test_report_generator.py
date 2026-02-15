@@ -929,7 +929,7 @@ class TestErrorHandling:
         # Verify deep access
         telemetry = generator.anomalies[0].telemetry_data
         assert telemetry["level1"]["level2"]["level3"]["level4"]["sensor_value"] == 42.5
-        assert telemetry["array"][3][2][2] == 8  # array[3] is [4, 5, [6, 7, 8]], [3][2] is [6, 7, 8], [3][2][2] is 8
+        assert telemetry["array"][3][2][2] == 8  # array[3] is [4, 5, [6, 7, 8]], array[3][2] is [6, 7, 8], array[3][2][2] is 8
 
     def test_recovery_action_with_null_metadata(self, generator):
         """Test recovery action explicitly passing None for metadata."""
