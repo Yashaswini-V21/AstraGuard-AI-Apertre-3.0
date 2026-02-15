@@ -11,7 +11,7 @@ from typing import List, Optional, Any, Union, Dict, TYPE_CHECKING
 from datetime import datetime, timedelta
 from collections import deque
 from asyncio import Lock
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from contextlib import asynccontextmanager
@@ -70,10 +70,12 @@ if TYPE_CHECKING:
     from security_engine.predictive_maintenance import PredictiveMaintenanceEngine
 from fastapi.responses import Response
 from core.metrics import get_metrics_text, get_metrics_content_type
+from core.restart import get_restart_manager
 from core.rate_limiter import RateLimiter, RateLimitMiddleware, get_rate_limit_config
 from backend.redis_client import RedisClient
 import numpy as np
 from numpy.typing import NDArray
+from core.restart import get_restart_manager
 from astraguard.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -725,6 +727,30 @@ async def metrics(username: str = Depends(get_current_username)) -> Response:
         content=get_metrics_text(), 
         media_type=get_metrics_content_type()
     )
+
+
+@app.post("/api/v1/system/restart", status_code=status.HTTP_202_ACCEPTED)
+async def restart_system(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin)
+):
+    """
+    Trigger a system restart.
+    
+    Requires ADMIN privileges.
+    Returns 202 Accepted immediately, then performs restart in background.
+    """
+    if OBSERVABILITY_ENABLED:
+        logger.warning(f"System restart initiated by user: {current_user.username}")
+        
+    restart_manager = get_restart_manager()
+    background_tasks.add_task(restart_manager.trigger_restart)
+    
+    return {
+        "status": "restarting",
+        "timestamp": datetime.now(),
+        "message": "System restart initiated"
+    }
 
 
 @app.post("/api/v1/telemetry", response_model=AnomalyResponse, status_code=status.HTTP_200_OK)
