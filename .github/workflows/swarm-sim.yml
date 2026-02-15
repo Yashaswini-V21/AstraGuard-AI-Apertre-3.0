@@ -12,7 +12,6 @@ on:
     branches: [ main ]
 
 concurrency:
-concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -22,25 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     
-    services:
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      
-      rabbitmq:
-        image: rabbitmq:3.12-management-alpine
-        env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
-        options: >-
-          --health-cmd "rabbitmq-diagnostics ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    # REMOVED: services block caused port conflicts with docker-compose
     
     steps:
       - uses: actions/checkout@v4
@@ -70,10 +51,25 @@ jobs:
         env:
           COMPOSE_PROJECT_NAME: swarm-${{ github.run_id }}
         run: |
+          # Build and start the infrastructure
           docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
-          echo "Waiting for services to be healthy..."
-          echo "Waiting for services to be healthy..."
-          sleep 10
+          
+          echo "Waiting for Event Bus (RabbitMQ) to be healthy..."
+          # Loop until RabbitMQ reports 'healthy' or timeout after 60s
+          timeout=60
+          counter=0
+          until [ "$(docker inspect --format='{{.State.Health.Status}}' swarm-${{ github.run_id }}-event-bus-1 2>/dev/null)" == "healthy" ]; do
+            if [ $counter -ge $timeout ]; then
+              echo "Timeout waiting for RabbitMQ health check"
+              docker logs swarm-${{ github.run_id }}-event-bus-1
+              exit 1
+            fi
+            printf '.'
+            sleep 2
+            counter=$((counter+2))
+          done
+          echo "Event Bus is healthy!"
+          
           docker compose -f infra/docker/docker-compose.swarm.yml ps
       
       - name: Wait for Agents Ready
@@ -83,24 +79,24 @@ jobs:
           import httpx
           import time
           import subprocess
+          import os
           
           async def wait_agents():
               # First check if container is running
               env = {'COMPOSE_PROJECT_NAME': f'swarm-{os.environ.get("GITHUB_RUN_ID", "local")}'}
               result = subprocess.run(['docker', 'compose', '-f', 'infra/docker/docker-compose.swarm.yml', 'ps', '--format', 'json'],
-                                     capture_output=True, text=True, env={**os.environ, **env})
+                                      capture_output=True, text=True, env={**os.environ, **env})
               print('Container status:', result.stdout)
               
               # Check if port is actually mapped
-              env = {'COMPOSE_PROJECT_NAME': f'swarm-{os.environ.get("GITHUB_RUN_ID", "local")}'}
               result = subprocess.run(['docker', 'compose', '-f', 'infra/docker/docker-compose.swarm.yml', 'port', 'agent-1', '8000'],
-                                     capture_output=True, text=True, env={**os.environ, **env})
+                                      capture_output=True, text=True, env={**os.environ, **env})
               print('Port mapping:', result.stdout)
               
               for i in range(60):
                   try:
                       async with httpx.AsyncClient() as client:
-                          resp = await client.get('http://localhost:8001/health', timeout=2)
+                          resp = await client.get('http://localhost:8001/health/live', timeout=2)
                           if resp.status_code == 200:
                               print('Agent SAT-001-A ready')
                               return True
@@ -114,7 +110,6 @@ jobs:
               print('Agents ready')
           else:
               print('Timeout waiting for agents')
-              # Show container logs before failing
               # Show container logs before failing
               env = {'COMPOSE_PROJECT_NAME': f'swarm-{os.environ.get("GITHUB_RUN_ID", "local")}'}
               subprocess.run(['docker', 'compose', '-f', 'infra/docker/docker-compose.swarm.yml', 'logs', '--tail=50'], env={**os.environ, **env})
@@ -217,6 +212,9 @@ jobs:
           # Start constellation
           export COMPOSE_PROJECT_NAME=swarm-${{ github.run_id }}
           docker compose -f infra/docker/docker-compose.swarm.yml up -d --build
+          
+          # Wait for healthy stack (reusing logic)
+          echo "Waiting for Event Bus to initialize..."
           sleep 15
           
           # Run timing tests
@@ -231,7 +229,7 @@ jobs:
                   for _ in range(10):
                       start = time.time()
                       try:
-                          resp = await client.get('http://localhost:8001/health', timeout=2)
+                          resp = await client.get('http://localhost:8001/health/live', timeout=2)
                           times.append((time.time() - start) * 1000)
                       except:
                           pass
