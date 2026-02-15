@@ -19,6 +19,30 @@ from core.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
+
+def _generate_request_id() -> str:
+    """Generate a unique request ID for correlation tracking."""
+    return str(uuid.uuid4())
+
+
+def _mask_api_key(api_key: str) -> str:
+    """
+    Mask API key for safe logging.
+    
+    Only shows first 8 characters followed by asterisks to prevent token leakage.
+    
+    Args:
+        api_key: The API key to mask
+        
+    Returns:
+        Masked API key suitable for logging (e.g., "abc12345********")
+    """
+    if not api_key:
+        return "<empty>"
+    if len(api_key) <= 8:
+        return "*" * len(api_key)
+    return api_key[:8] + "********"
+
 # Global API key manager instance
 _api_key_manager: Optional[APIKeyManager] = None
 
@@ -30,6 +54,7 @@ _CACHE_TTL_SECONDS = 300  # 5 minutes
 def get_api_key_manager() -> APIKeyManager:
     """Get the global API key manager instance (cached)."""
     return APIKeyManager()
+
 
 
 # FastAPI security scheme
@@ -59,11 +84,41 @@ async def get_api_key(
         HTTPException(401): If the key is missing from headers.
         HTTPException(401): If the key is invalid, expired, or rate-limited.
     """
+    # Generate correlation ID for this authentication attempt
+    request_id = _generate_request_id()
+    client_ip = request.client.host if request and request.client else "unknown"
+    request_path = request.url.path if request else "unknown"
+    request_method = request.method if request else "unknown"
+    
+    # Log authentication attempt
+    logger.info(
+        "Authentication attempt",
+        extra={
+            "request_id": request_id,
+            "client_ip": client_ip,
+            "path": request_path,
+            "method": request_method,
+            "has_api_key": bool(api_key)
+        }
+    )
+    
     if not api_key:
+        logger.warning(
+            "Authentication failed: Missing API key",
+            extra={
+                "request_id": request_id,
+                "client_ip": client_ip,
+                "path": request_path,
+                "reason": "no_api_key_header"
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key required. Include 'X-API-Key' header."
         )
+    
+    api_key = api_key.strip()
+    key_prefix = api_key[:8] if len(api_key) >= 8 else api_key[:4]
 
     # Check cache first
     if api_key in _validation_cache:
@@ -84,11 +139,32 @@ async def get_api_key(
 
     # Cache miss or expired - perform full validation
     key_manager = get_api_key_manager()
+    masked_key = _mask_api_key(api_key)
 
     try:
         # Validate the key
+        logger.debug(
+            "Validating API key",
+            extra={
+                "request_id": request_id,
+                "masked_key": masked_key,
+                "client_ip": client_ip
+            }
+        )
+        
         key = key_manager.validate_key(api_key)
+        
+        logger.debug(
+            "API key validated successfully",
+            extra={
+                "request_id": request_id,
+                "masked_key": masked_key,
+                "key_name": key.name,
+                "permissions": list(key.permissions)
+            }
+        )
 
+    try:
         # Check rate limit
         key_manager.check_rate_limit(api_key)
 
@@ -96,6 +172,7 @@ async def get_api_key(
         _validation_cache[api_key] = (key, datetime.now())
 
         return key
+        
     except ValueError as e:
         # Log authentication failures with debugging context (lazy evaluation)
         if logger.isEnabledFor(logging.WARNING):
@@ -108,15 +185,18 @@ async def get_api_key(
                     "endpoint": request.url.path
                 }
             )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e)
         )
 
+    return key
+
+
 
 
 def require_permission(permission: str) -> Callable[[APIKey], Awaitable[APIKey]]:
-
     """
     Create a dependency that requires a specific permission scope.
 
@@ -130,11 +210,39 @@ def require_permission(permission: str) -> Callable[[APIKey], Awaitable[APIKey]]
         Callable: A FastAPI dependency function that validates the permission.
     """
     async def permission_checker(api_key: APIKey = Depends(get_api_key)) -> APIKey:
+        logger.debug(
+            "Checking permission",
+            extra={
+                "key_name": api_key.name,
+                "required_permission": permission,
+                "available_permissions": list(api_key.permissions),
+                "has_permission": permission in api_key.permissions
+            }
+        )
+        
         if permission not in api_key.permissions:
+            logger.warning(
+                "Authorization failed: Insufficient permissions",
+                extra={
+                    "key_name": api_key.name,
+                    "required_permission": permission,
+                    "available_permissions": list(api_key.permissions),
+                    "reason": "permission_denied"
+                }
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission '{permission}' required"
             )
+        
+        logger.info(
+            "Authorization successful",
+            extra={
+                "key_name": api_key.name,
+                "granted_permission": permission
+            }
+        )
+        
         return api_key
 
     return permission_checker
@@ -199,13 +307,23 @@ def initialize_from_env() -> None:
                     extra={"initialized_count": initialized_count}
                 )
 
-        except ValueError as e:
-            # Invalid format in environment variable
-            logger.error(f"Invalid API key format in environment variable: {e}", exc_info=True)
-        except OSError as e:
-            # File system errors when saving keys
-            logger.error(f"Failed to save API keys to storage: {e}", exc_info=True)
-        except Exception as e:
-            # Intentionally broad: catch unexpected errors to prevent startup failure
-            # This allows the application to start even if API key initialization fails
-            logger.error(f"Unexpected error initializing API keys from environment: {e}", exc_info=True)
+        key_manager._save_keys()  # type: ignore[attr-defined]
+        
+        logger.info(
+            "API key initialization completed",
+            extra={
+                "keys_processed": keys_processed,
+                "keys_skipped": keys_skipped,
+                "total_keys": keys_processed + keys_skipped
+            }
+        )
+
+    except Exception as e:
+        logger.error(
+            "Failed to initialize API keys from environment",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            exc_info=True
+        )
