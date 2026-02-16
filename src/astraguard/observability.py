@@ -21,6 +21,33 @@ logger: logging.Logger = logging.getLogger(__name__)
 # Cache for metrics to avoid repeated registry lookups
 _metric_cache: Dict[str, Any] = {}
 
+# Cache for labeled metrics to avoid repeated label object creation
+# Key: (id(metric), tuple(sorted(label_values)))
+# Value: labeled_metric
+_labeled_metric_cache: Dict[tuple, Any] = {}
+
+
+def _get_cached_labels(metric: Any, **labels: Any) -> Any:
+    """
+    Get or create a cached labeled metric to avoid repeated label object creation.
+    
+    Args:
+        metric: The base metric object (e.g., Histogram, Counter)
+        **labels: Label key-value pairs
+        
+    Returns:
+        The labeled metric object
+    """
+    # Create a hashable key from metric id and label values
+    label_values = tuple(sorted(labels.values()))
+    cache_key = (id(metric), label_values)
+    
+    if cache_key not in _labeled_metric_cache:
+        _labeled_metric_cache[cache_key] = metric.labels(**labels)
+    
+    return _labeled_metric_cache[cache_key]
+
+
 # ============================================================================
 # SAFE METRIC INITIALIZATION (handles test reruns gracefully)
 # ============================================================================
@@ -328,14 +355,14 @@ def track_request(endpoint: str, method: str = "POST") -> Generator[None, None, 
         Exception: Re-raises any exception that occurs within the block,
                    ensuring it propagates after metrics are recorded.
     """
-    start = time.time()
+    start = time.perf_counter()
     try:
         if ACTIVE_CONNECTIONS:
             ACTIVE_CONNECTIONS.inc()
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if REQUEST_LATENCY:
-            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+            _get_cached_labels(REQUEST_LATENCY, endpoint=endpoint).observe(duration)
         if REQUEST_COUNT:
             REQUEST_COUNT.labels(method=method, endpoint=endpoint, status="200").inc()
     except (ValueError, KeyError, TypeError) as e:
@@ -364,9 +391,9 @@ def track_request(endpoint: str, method: str = "POST") -> Generator[None, None, 
         # Unexpected errors (server errors)
         duration = time.time() - start
         if REQUEST_LATENCY:
-            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+            _get_cached_labels(REQUEST_LATENCY, endpoint=endpoint).observe(duration)
         if REQUEST_COUNT:
-            REQUEST_COUNT.labels(method=method, endpoint=endpoint, status="500").inc()
+            _get_cached_labels(REQUEST_COUNT, method=method, endpoint=endpoint, status="500").inc()
         if ERRORS:
             ERRORS.labels(type=type(e).__name__, endpoint=endpoint).inc()
         logger.exception(f"Unexpected error on {endpoint}: {e}", extra={"endpoint": endpoint, "method": method})
@@ -376,13 +403,14 @@ def track_request(endpoint: str, method: str = "POST") -> Generator[None, None, 
             ACTIVE_CONNECTIONS.dec()
 
 
+
 @contextmanager
 def track_anomaly_detection() -> Generator[None, None, None]:
     """Track anomaly detection latency and results"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if DETECTION_LATENCY:
             DETECTION_LATENCY.observe(duration)
     except (ValueError, KeyError) as e:
@@ -400,7 +428,7 @@ def track_anomaly_detection() -> Generator[None, None, None]:
     except Exception as e:
         logger.exception(f"Unexpected anomaly detection failure: {e}")
         if ERRORS:
-            ERRORS.labels(type=type(e).__name__, endpoint="anomaly_detection").inc()
+            _get_cached_labels(ERRORS, type=type(e).__name__, endpoint="anomaly_detection").inc()
         raise
 
 
@@ -408,10 +436,10 @@ def track_anomaly_detection() -> Generator[None, None, None]:
 @contextmanager
 def track_retry_attempt(endpoint: str) -> Generator[None, None, None]:
     """Track retry latency"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if RETRY_LATENCY:
             RETRY_LATENCY.labels(endpoint=endpoint).observe(duration)
     except (ConnectionError, TimeoutError) as e:
@@ -429,13 +457,14 @@ def track_retry_attempt(endpoint: str) -> Generator[None, None, None]:
 
 
 
+
 @contextmanager
 def track_chaos_recovery(chaos_type: str) -> Generator[None, None, None]:
     """Track recovery time from chaos injection"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if CHAOS_RECOVERY_TIME:
             CHAOS_RECOVERY_TIME.labels(type=chaos_type).observe(duration)
     except TimeoutError as e:
@@ -463,8 +492,9 @@ def track_chaos_recovery(chaos_type: str) -> Generator[None, None, None]:
             extra={"chaos_type": chaos_type}
         )
         if ERRORS:
-            ERRORS.labels(type=type(e).__name__, endpoint="chaos_recovery").inc()
+            _get_cached_labels(ERRORS, type=type(e).__name__, endpoint="chaos_recovery").inc()
         raise
+
 
 
 # ============================================================================
@@ -474,73 +504,77 @@ def track_chaos_recovery(chaos_type: str) -> Generator[None, None, None]:
 @asynccontextmanager
 async def async_track_request(endpoint: str, method: str = "POST") -> AsyncGenerator[None, None]:
     """Async version of track_request for async contexts"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         if ACTIVE_CONNECTIONS:
             ACTIVE_CONNECTIONS.inc()
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if REQUEST_LATENCY:
-            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+            _get_cached_labels(REQUEST_LATENCY, endpoint=endpoint).observe(duration)
         if REQUEST_COUNT:
-            REQUEST_COUNT.labels(method=method, endpoint=endpoint, status="200").inc()
+            _get_cached_labels(REQUEST_COUNT, method=method, endpoint=endpoint, status="200").inc()
     except Exception as e:
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if REQUEST_LATENCY:
-            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+            _get_cached_labels(REQUEST_LATENCY, endpoint=endpoint).observe(duration)
         if REQUEST_COUNT:
-            REQUEST_COUNT.labels(method=method, endpoint=endpoint, status="500").inc()
+            _get_cached_labels(REQUEST_COUNT, method=method, endpoint=endpoint, status="500").inc()
         if ERRORS:
-            ERRORS.labels(type=type(e).__name__, endpoint=endpoint).inc()
+            _get_cached_labels(ERRORS, type=type(e).__name__, endpoint=endpoint).inc()
         raise
     finally:
         if ACTIVE_CONNECTIONS:
             ACTIVE_CONNECTIONS.dec()
 
 
+
 @asynccontextmanager
 async def async_track_anomaly_detection() -> AsyncGenerator[None, None]:
     """Async version of track_anomaly_detection"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if DETECTION_LATENCY:
             DETECTION_LATENCY.observe(duration)
     except Exception as e:
         logger.error(f"Anomaly detection failed: {e}")
         if ERRORS:
-            ERRORS.labels(type=type(e).__name__, endpoint="anomaly_detection").inc()
+            _get_cached_labels(ERRORS, type=type(e).__name__, endpoint="anomaly_detection").inc()
         raise
+
 
 
 @asynccontextmanager
 async def async_track_retry_attempt(endpoint: str) -> AsyncGenerator[None, None]:
     """Async version of track_retry_attempt"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if RETRY_LATENCY:
-            RETRY_LATENCY.labels(endpoint=endpoint).observe(duration)
+            _get_cached_labels(RETRY_LATENCY, endpoint=endpoint).observe(duration)
     except Exception:
         raise
+
 
 
 @asynccontextmanager
 async def async_track_chaos_recovery(chaos_type: str) -> AsyncGenerator[None, None]:
     """Async version of track_chaos_recovery"""
-    start = time.time()
+    start = time.perf_counter()
     try:
         yield
-        duration = time.time() - start
+        duration = time.perf_counter() - start
         if CHAOS_RECOVERY_TIME:
-            CHAOS_RECOVERY_TIME.labels(type=chaos_type).observe(duration)
+            _get_cached_labels(CHAOS_RECOVERY_TIME, type=chaos_type).observe(duration)
     except Exception as e:
         logger.error(f"Chaos recovery failed for {chaos_type}: {e}")
         if ERRORS:
-            ERRORS.labels(type=type(e).__name__, endpoint="chaos_recovery").inc()
+            _get_cached_labels(ERRORS, type=type(e).__name__, endpoint="chaos_recovery").inc()
         raise
+
 
 
 # ============================================================================
