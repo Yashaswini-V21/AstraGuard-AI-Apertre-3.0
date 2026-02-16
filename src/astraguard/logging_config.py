@@ -61,6 +61,10 @@ def setup_json_logging(
     if environment is None:
         environment = _cached_get_secret("environment", "development")
     try:
+        # Use cached secret retrieval for consistency
+        if environment is None:
+            environment = _cached_get_secret("environment", "development")
+        
         # Validate log_level
         if not hasattr(logging, log_level.upper()):
             raise ValueError(f"Invalid log level: {log_level}")
