@@ -1,0 +1,52 @@
+[
+  {
+    "username": "experienced-backend-dev",
+    "tier": "Core",
+    "skills": ["Backend", "Python", "FastAPI", "API Development", "Database Design"],
+    "timezone": "UTC-5",
+    "availability": "3-4 hours/week",
+    "communication_prefs": ["GitHub", "Discord"],
+    "max_mentees": 2,
+    "bio": "Backend specialist with 5+ years Python experience. Love helping newcomers!"
+  },
+  {
+    "username": "frontend-guru",
+    "tier": "Regular",
+    "skills": ["Frontend", "React", "JavaScript", "UI/UX", "Streamlit"],
+    "timezone": "UTC+1",
+    "availability": "2-3 hours/week",
+    "communication_prefs": ["GitHub", "Email"],
+    "max_mentees": 2,
+    "bio": "Frontend developer passionate about clean UI and user experience."
+  },
+  {
+    "username": "security-expert",
+    "tier": "Core",
+    "skills": ["Security", "Anomaly Detection", "Python", "Testing"],
+    "timezone": "UTC+5:30",
+    "availability": "4 hours/week",
+    "communication_prefs": ["GitHub"],
+    "max_mentees": 3,
+    "bio": "Security researcher specializing in AI-powered threat detection."
+  },
+  {
+    "username": "docs-champion",
+    "tier": "Regular",
+    "skills": ["Documentation", "Technical Writing", "Markdown"],
+    "timezone": "UTC-8",
+    "availability": "2 hours/week",
+    "communication_prefs": ["GitHub", "Email"],
+    "max_mentees": 1,
+    "bio": "Technical writer helping make complex concepts accessible."
+  },
+  {
+    "username": "fullstack-contributor",
+    "tier": "Legend",
+    "skills": ["Backend", "Frontend", "Python", "React", "DevOps"],
+    "timezone": "UTC",
+    "availability": "3 hours/week",
+    "communication_prefs": ["GitHub", "Discord", "Email"],
+    "max_mentees": 2,
+    "bio": "Full-stack developer and long-time contributor to AstraGuard AI."
+  }
+]

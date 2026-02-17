@@ -562,6 +562,7 @@ Start with a **Good First Issue** - perfect for newcomers!
 - **[Dependency Conflict Resolver](docs/DEPENDENCY_CONFLICT_RESOLVER.md)** - Detect and resolve dependency conflicts
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
 - **[Good First Issue Criteria](docs/GOOD_FIRST_ISSUE_CRITERIA.md)** - Guidelines for newcomers
+- **[Mentorship Program](docs/MENTORSHIP_PROGRAM.md)** - Get paired with an experienced contributor
 
 ---
 

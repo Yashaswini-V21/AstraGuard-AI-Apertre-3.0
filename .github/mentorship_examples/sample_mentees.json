@@ -1,0 +1,62 @@
+[
+  {
+    "username": "new-python-learner",
+    "experience_level": "Beginner",
+    "interests": ["Backend", "Python", "API Development"],
+    "timezone": "UTC-4",
+    "availability": "3 hours/week",
+    "communication_prefs": ["GitHub", "Discord"],
+    "goals": "Learn Python best practices and contribute to backend features",
+    "prior_open_source": false
+  },
+  {
+    "username": "react-enthusiast",
+    "experience_level": "Intermediate",
+    "interests": ["Frontend", "React", "UI/UX"],
+    "timezone": "UTC+2",
+    "availability": "4 hours/week",
+    "communication_prefs": ["GitHub"],
+    "goals": "Build dashboard features and improve my React skills",
+    "prior_open_source": true
+  },
+  {
+    "username": "security-student",
+    "experience_level": "Beginner",
+    "interests": ["Security", "Anomaly Detection", "Python"],
+    "timezone": "UTC+5:30",
+    "availability": "5 hours/week",
+    "communication_prefs": ["GitHub", "Email"],
+    "goals": "Understand AI-powered security systems and contribute to detection logic",
+    "prior_open_source": false
+  },
+  {
+    "username": "aspiring-writer",
+    "experience_level": "Beginner",
+    "interests": ["Documentation", "Technical Writing"],
+    "timezone": "UTC-7",
+    "availability": "2 hours/week",
+    "communication_prefs": ["Email", "GitHub"],
+    "goals": "Improve documentation and learn about space security",
+    "prior_open_source": false
+  },
+  {
+    "username": "curious-developer",
+    "experience_level": "Intermediate",
+    "interests": ["Backend", "Frontend", "Testing"],
+    "timezone": "UTC+1",
+    "availability": "3 hours/week",
+    "communication_prefs": ["Discord", "GitHub"],
+    "goals": "Learn full-stack development and best practices",
+    "prior_open_source": true
+  },
+  {
+    "username": "testing-enthusiast",
+    "experience_level": "Beginner",
+    "interests": ["Testing", "QA", "Python"],
+    "timezone": "UTC-5",
+    "availability": "2 hours/week",
+    "communication_prefs": ["GitHub"],
+    "goals": "Learn testing strategies and write quality test cases",
+    "prior_open_source": false
+  }
+]

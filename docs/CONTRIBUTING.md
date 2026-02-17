@@ -131,6 +131,24 @@ Every merged PR counts toward your tier! Quality contributions can also earn spe
 - 🧪 Testing Champion
 - 🤝 Community Mentor
 
+### 🎓 Mentorship Program
+
+New to the project? Get paired with an experienced contributor!
+
+**For Mentees:**
+- Get guidance from experienced contributors
+- Learn codebase navigation and best practices
+- Receive help on your first 2-3 contributions
+- Build confidence and skills
+
+**For Mentors:**
+- Help newcomers succeed
+- Earn Mentor badges
+- Build leadership skills
+- Give back to the community
+
+**Learn More**: [Mentorship Program Guide](MENTORSHIP_PROGRAM.md)
+
 ---
 
 ## Apertre-3.0 2026 Contribution Guidelines
