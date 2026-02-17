@@ -66,6 +66,8 @@ AstraGuard now operates with **mission-phase awareness**. Before contributing, u
 
 New to AstraGuard or open source? Start with a **Good First Issue**!
 
+**📋 New Contributors**: Follow our [Contributor Onboarding Checklist](CONTRIBUTOR_ONBOARDING_CHECKLIST.md) for a step-by-step guide to your first contribution.
+
 ### Finding Good First Issues
 
 Look for issues labeled with:

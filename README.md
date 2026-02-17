@@ -532,6 +532,7 @@ Start with a **Good First Issue** - perfect for newcomers!
 
 ### 📚 Contribution Resources
 
+- **[Onboarding Checklist](docs/CONTRIBUTOR_ONBOARDING_CHECKLIST.md)** - Step-by-step guide for your first contribution
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - Full guidelines and workflow
 - **[Good First Issue Criteria](docs/GOOD_FIRST_ISSUE_CRITERIA.md)** - How issues are selected
 - **[Code of Conduct](docs/CODE_OF_CONDUCT.md)** - Community standards
@@ -560,6 +561,7 @@ Start with a **Good First Issue** - perfect for newcomers!
 
 ### Developer Tools
 - **[Dependency Conflict Resolver](docs/DEPENDENCY_CONFLICT_RESOLVER.md)** - Detect and resolve dependency conflicts
+- **[Onboarding Checklist](docs/CONTRIBUTOR_ONBOARDING_CHECKLIST.md)** - First contribution guide
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
 - **[Good First Issue Criteria](docs/GOOD_FIRST_ISSUE_CRITERIA.md)** - Guidelines for newcomers
 
